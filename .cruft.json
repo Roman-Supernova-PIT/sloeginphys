@@ -1,0 +1,35 @@
+{
+  "template": "https://github.com/Roman-Supernova-PIT/package-template",
+  "commit": "f4c91e3f1122a6de4f6667912e9e871951174191",
+  "checkout": null,
+  "context": {
+    "cookiecutter": {
+      "package_name": "roman_snpit_sloeginphys",
+      "module_name": "sloeginphys",
+      "github_snpit_repo_name": "sloeginphys",
+      "short_description": "Physical modeling of host galaxies",
+      "author_name": "Ann Isaacs and Roman SNPIT",
+      "author_email": "isaac413@umn.edu",
+      "github_username": "AnnIsaacs7",
+      "minimum_python_version": "3.11",
+      "use_compiled_extensions": "n",
+      "include_example_code": "n",
+      "include_github_workflows": "y",
+      "_project_url": "https://github.com/Roman-Supernova-PIT",
+      "_pit_github_org": "Roman-Supernova-PIT",
+      "_pit_name": "Roman Supernova Project Infrastructure Team",
+      "_sphinx_theme": "alabaster",
+      "_parent_project": "",
+      "install_requires": "",
+      "_copy_without_render": [
+        "docs/_templates",
+        "docs/_static",
+        ".github/workflows",
+        ".github/"
+      ],
+      "_template": "https://github.com/Roman-Supernova-PIT/package-template",
+      "_commit": "f4c91e3f1122a6de4f6667912e9e871951174191"
+    }
+  },
+  "directory": null
+}
