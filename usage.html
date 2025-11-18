@@ -5,12 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Usage &#8212; sloeginphys 0.1.dev1+g64badd332 documentation</title>
+    <title>Usage &#8212; sloeginphys 0.1.dev1+gbe6a9ebf1 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=5a6b8c39" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=f3bc516d" />
     <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
-    <script src="_static/documentation_options.js?v=27844cdc"></script>
+    <script src="_static/documentation_options.js?v=e5acf26c"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -97,6 +97,185 @@
             
   <section id="usage">
 <h1>Usage<a class="headerlink" href="#usage" title="Link to this heading">¶</a></h1>
+<p>#Fitter: Physically modeling host galaxies
+The fitter object uses spectroscopy and photometry of a host galaxy before a supernova to physically model the host. This can be used to subtract the host spectrum from the supernova, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting.</p>
+<p>Some choices made when performing the fit will decrease the time cost but also decrease the precision and accuracy. Other choices will do the opposite—increasing time while also increasing precision and accuracy. These choices are as follows:</p>
+<p>method: The frequentist method to use when running the initial fit. Some choices will run faster or more accurately than others. Current default is the trf method from scipy.least_squares, which is generally fast and reliable. Other recommended methods are lm from least_squares and Nelder-Mead from optimize.</p>
+<p>use_bayes: If True, the full Bayesian fit will provide a more complete exploration of the parameter space and give a better uncertainty estimation. This can take a lot of time. If False, only the frequentist fit results are returned but the function runs much faster.</p>
+<p>one_sed: If True, each pixel is assumed to have the same spectrum, so only one simulation is performed in each pass. This saves time, especially in cases where the host galaxy covers a large number of pixels, but means that local variations in the galaxy are not accounted for. If False, each pixel is assigned a unique SED. This required more simulations to be run, but allows the galaxy to vary more between locations.</p>
+<p>sim_code: Choice to use either BC03 or FSPS to simulate the SEDs. BC03 allows for fewer inputs and provides fewer outputs, but runs much faster. FSPS runs slower, but allows a great diversity of input parameters and outputs many useful quantities. Only FSPS can fit for metallicity at this point. Note: the number of FSPS parameters to fit may also impact runtime.</p>
+<p>BC03 and FSPS behave differently in execution. Because BC03 uses a smaller number of input parameters, all parameters based on the inputs will automatically be fit for. FSPS can have an enormous number of input parameters, so you must select which ones you want to run. Further specific notes are below.</p>
+<p>BC03:
+•       For SFH1 or -1, ensure gas recycling is set and that epsilon is included in the initial guess.
+•       For SFH 6, file names cannot be iterated over. In general this SED choice is not recommended.
+•       SFH 7 is not currently supported.
+•       Right now, the command line outputs for BC03 are redirected into a log file named bc03_logfile.txt. This file will be saved in your working directory if you want to read it.
+FSPS:
+•       SFH 2 and 3 are not currently supported. SFH 2 is not supported by pyFSPS and so is unlikely to become available in the future.
+•       Any parameters that are not used by the IMF, SFH, dust, and other selections will not be fit for. Ensure that your desired fittable parameters match your non-iterable parameter choices.
+•       Not setting any variable in the section fsps_params will leave it as the default
+•       Not setting any variable in the section fsps_optional will mean it is fit for. To keep any variable in this section fixed, that is, to NOT fit it, set either to a chosen value or the string “default” to keep it as the default variable.</p>
+<p>The Fitter object
+The “fitter” object is the object that will perform the fitting. Its inputs are related to the host galaxy desired as the final output of the simulation. For example, if the supernova was first detected in image1.asdf,  the initial inputs for the fitter object should be related to image1.asdf. Fitter takes in the direct photometric image (not the spectroscopy image) of the discovery. When initialized, fitter creates a simulator object for this direct image,  finds the corresponding segmentation map, and retrieves data from the segmentation map that will be useful later. If direct image is not valid or there is no matching segmentation map, the object will not be created. The RA and DEC of the object to be fit can also be given here or added later. The spectrum image containing the supernova must also be provided.
+Fitter utility functions
+The fitter object contains several utility functions to aid in setting up the fit.
+pick_object(id)
+This function allows the user to select the object they want to fit from a segmentation map containing many objects. The input is the number assigned to that object in the segmentation map, which can be either found by hand or retrieved with one of the get_ID functions below. This function recreates the simulator object, writes new segmentation map data, and rewrites other relevant parameters as needed. If the ID is not present in the segmentation map, this function returns an error.
+get_ID_xy(x, y)
+This function retrieves the number assigned to the object at pixel coordinates (x, y) based on the segmentation map
+get_ID_ad(ra, dec)
+This function retrieves the number assigned to the object at world coordinates (ra, dec) based on the segmentation map
+make_map(ra, dec)
+This function combines get_ID_ad and pick_object. If RA and DEC were provided at initialization, they do not need to be given again here. If RA and DEC were provided and are also input in this function, the RA and DEC input in the function will override the RA and DEC from initialization.
+The fit function
+This is the primary function of the object that performs the fit. It requires as input the data that should be used in the fit, an initial guess, and a configuration file. Its outputs are configurable and include the parameters of the best fit, the simulated best fit image, and the simulated best fit image subtracted from the image containing the supernova. It can either automatically retrieve all data from the Roman database containing given coordinates with certain criteria or use only a provided list of files or image IDs. It can also fit using files in a local directory or personal machine.
+Input data
+The input data is divided in spectroscopic and photometric data. If using the NERSC database, data can be pulled automatically based on coordinates and date, or specifically using a list of file paths and/or UUIDs. If using local data, each can be provided as a path to the files in the form of a string or as a list of strings that are complete paths to the desired files. Set to “None” if not using this type of data for local machines. The program will not proceed if no valid data is provided. Note that using “local” will assume that the provided files are in fits format.
+Initial guess
+The initial guess is a vector containing initial guesses for the desired fit parameters. The length must match what the program expects based on the number of fit parameters and the number of pixels. If this is not the case, the program will stop and log an error.
+Configuration file
+The configuration file contains all the information needed to perform the fit. As much as possible, the function will ensure these parameters are valid and prevent the program from proceeding if they are not. It will also log an error stating which parameter is incorrect. An example configuration file is provided [here]. More details on the parameter options are also given below.
+Timing
+Some sections may take a lot of time and it can be difficult to tell if this is a problem or not. Reference times are provided here. If your program routinely exceeds these times, there may be something wrong. Any portion not specified here should not take more than a minute or two.
+Overlapping pixels - In general, overlapping pixels should take about 1 seconds for every 100 pixels. So, if you have two images with 100 pixels each, overlapping pixels should take about 2 seconds.
+Performing the fit - This is the most variable section. Some reference times are provided here, giving number of pixels, number of images, choice of simulation code, use of one SED for all pixels, and number of parameters to fit for. Keep in mind that the choice of initial guess and other choices may influence these results.</p>
+<p>Simulating best-fit image – Should be on the order of seconds to a minute. Longer than a minute is cause for concern.
+A note: in some cases, this code may take a long time to run. One useful thing you can do is import Audio from IPython and set a sound file to play automatically after the code has run. I find this helpful because I can do other things and return to the long-running code when it’s done.
+Troubleshooting
+For the most part, error messages produced by the code will be written to the log and should be informative on the cause of the problem. Assertion errors may appear directly in the environment where the code is run, but should also be largely informative on the variable causing the problem. Listed here are errors I have encountered in testing. If you find new errors that are not already addressed here, please reach out to me at <a class="reference external" href="mailto:isaac413&#37;&#52;&#48;umn&#46;edu">isaac413<span>&#64;</span>umn<span>&#46;</span>edu</a>. I will add it here with a solution if possible.
+Common errors
+Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses.
+Configuration options
+run: variables controlling the run of the code
+local (bool) – choice to use local data or pull from the database. If True, provide a directory containing the files or a list of files to fit. If False, provided coordinates and a date range or a list of file paths and/or UUIDs. Default is False, pulling from the database.
+verbose (bool, optional) – choice of what to write to the log. If False, the code runs without saying much. If True, states what is being done and times certain operations that may take longer, as well as providing a total runtime. Can be used to spot the point of a failure or figure out which part is taking mor time than it should.
+paths: various paths to various files
+working_dir (string) – the directory where all the files produced by the fit should be saved. Must end with “/”. Must already exist.
+filter_path (string) – path to the location of the filter function files. Only required if photometric data is provided. Requires all 8 filter functions to be present.
+ised_dir (string) – path to the ised files to be used. Requires the user to choose the library and the IMF.
+sps_home (string, optional) – path to SPS files for FSPS. Can be set elsewhere, such as in your .bashrc or in the imports section of this file. Must be set somewhere.
+output: control which outputs you are interested in
+return_fit (bool) – choice to return the best fit parameters with the parameter dictionary for context and the chi^2 value for the best fit. Default is True.
+save_fit (bool) – choice to save the map of best fit parameters. Default is False.
+fit_name (string) – name of saved fit map. Default is best_fit_properties. Only used if local=True.
+return_image (bool) – choice to return best fit image. Default is False.
+save_image (bool) – choice to save best fit image to a fits file. Default is False.
+image_name (string, optional) – name to give saved best image file. Default is best_fit.fits. Only used if local=True
+return_subtracted (bool) – choice to return the best fit subtracted from the image with the supernova present. Default is False.
+save_subtracted (bool) – choice to save the best fit subtracted from the image with the supernova present. Default is False
+subtracted_name (string, optional) – name to give the saved subtracted image file. Default is best_fit_subtracted.fits. Only used if local=True
+full_bayes (bool) – choice to return the full Bayesian analysis of the fit, including full chains. If False, still returns the best estimations of the parameters from the Bayesian fit. Default is False.
+temp: Properties that will eventually be pulled from the database or hard-coded in.
+z (float) – the redshift of the object, NOT metallicity. This is required to run the fit and must be greater than zero. It is currently retrieved from the truth tables
+mjd_disco (float) – discovery date of the SN, currently retrieved from truth tables
+provenance_tag (string) – the provenance string to use if automatically retrieving data
+spec_process (string) – the process to use for spectra if automatically retrieving data
+phot_process (string) – the process to use for photometry if automatically retrieving data
+params: actual parameters of the fit. These will be included in the provenance.
+mjd_min_offset (float) – lowest MJD offset from discovery to use if automatically retrieving data. Default is 90, i.e. no images will be pulled more than 90 days before discovery
+mjd_max _offset (float) – highest MJD offset from discovery to use if automatically retrieving data. Default is 30, i.e. no images will be pulled less than 30 days before discovery
+method (string, optional) – optimization method to use for the initial fit. Allows all methods in scipy.optimize.least_squares and all objects in scipy.optimize.minimize that do not require a callable Jacobian. Default is least_squares with the trf method, which is fast and reliable.
+use_bayes (bool, optional) – choice to use Bayesian statistics for a more complete exploration of the parameter space and uncertainty. Default is False. Currently not supported. If this is True, the best fit returned will be the median of the posterior with uncertainty and the best fit images will be made with these values. To return the complete chains for your own analysis, set full_bayes to be True in the output parameters
+niter (int, optional) – number of iterations to use when running Bayesian code. Only used if use_bayes is True. Default is 10^5.
+nwalkers (int, optional) – number of walkers to use when running Bayesian code. Only used if use_bayes is True. Default is 8.
+sim_code (string) – choice of simulation code, either BC03 (also known as GALAXEV) or FSPS. BC03 runs faster but allows for fewer inputs and outputs. FSPS is slower but allows for a lot of options for both input and output. BC03 does not permit the user to select which parameters to fit for as the number of parameters is inherently small. FSPS requires the user to select which parameters to fit for as the possible number of fit parameters per pixel can be very high.
+one_sed (bool, optional) – choice to allow each pixel to have a unique SED or not. If True, every pixel is assumed to have the same SED. This means the SED simulation is only done once per pass, saving time. If False, each pixel gets a unique SED. This takes longer, but allows the galaxy to vary over space
+buffer (int, optional) – buffer around the segmentation map to test for overlapping pixels when translating between different images. Default is 1, which should be plenty, but can be changed to be larger if faint or edge pixels are a concern.
+H0 (float, optional) – Hubble constant value to use in calculating distance from redshift. Cosmology is always flat LambdaCDM. Default is 70.
+OmegaM (float, optional) – Matter density to use in calculating distance from redshift. Cosmology is always flat LambdaCDM. Default is 0.3.
+bc03_params – parameters required to perform a BC03 simulation. These must all be provided. For more details on these parameters, see the BC03 documentation here.</p>
+<blockquote>
+<div><p>library (string) – library to use, e.g. “BaSeL”
+metallicity (string) – metallicity to use, e.g. “m82”
+imf (string) – initial mass function to use, e.g. “kroup”
+dust (bool, optional) – choice to fit for dust or not. Default is False.
+sfh (int) – star formation history choice. Must be 0, 1, -1, 2, 3, 4, 5, or 6. SFH 7 is not currently supported. If SFH is 1 or -1, dust recycling is an option (see below). If SFH is 6, provide a list of SED files matching the number of pixels if one_sed is False, and one file if one_sed is True.
+file_names (list) – list of file names to pull SEDs from if SFH is 6.
+recyc (bool, optional) – choice to use gas recycling if SFH is 1 or -1. Default is False.</p>
+</div></blockquote>
+<dl>
+<dt>fsps_params – non-iterable parameters for performing the FSPS simulation. Any parameters that are not set here will be set to the default based on the FSPS documentation. Only brief summary of these parameters is provided here. For more details, see FSPS documentation here.</dt><dd><p>zcontinuous -choice for how metallicity interpolation is performed. Default is 0.</p>
+</dd>
+<dt>zmet – metallicity as an integer between 1 and nz. Only used if zcontinuous is 0. Default is 1.</dt><dd><blockquote>
+<div><p>imf_type - initial mass function choice. Default is 2.
+sfh - star formation history choice. Options 2 and 3 are not supported. Default is 0.
+dust_type - dust type choice. Default is 0.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>tpagb_norm_type - normalization of thermally pulsing AGB stars. Default is 2.</dt><dd><p>wgp1 – optical depth in Witt and Gordon 2000
+wgp2 – large-scale geometry and extinction from Witt and Gordon 2000.
+wgp3 – local geometry for Witt and Gordon 2000 models.
+add_agb_dust_model - toggle asymptotic giant branch dust model. Default is True.
+add_dust_emission - toggle dust emission model from Draine and Li 2007. Default is True.
+add_igm_absorption - toggle intergalactic medium absorption. Default is False.
+add_neb_emission - toggle nebular emission modeling. Default is False.
+add_neb_continuum - toggle nebular continuum component. Default is True, but is set to False if add_neb_emission is False.
+add_stellar_remnants - toggle stellar remnant inclusion in stellar mass. Default is True.
+compute_light_ages - toggle choice of light or mass weighted ages. Default is False.
+nebemlineinspec - toggle inclusion of emission line fluxes in spectrum. Default is True.
+smooth_velocity - toggle smoothing in velocity or wavelength space. Default is True.
+smooth_lsf - toggle smoothing of SSPs by wavelength-dependent function. Only used if smooth_velocity is True. Default is False.
+cloudy_dust - toggle inclusion of dust in Cloudy tables. Default is False.
+use_wr_spectra – toggle use of WR spectral library. Default is 1.
+add_xrb_emission – toggle x-ray binary population. Default is 0.
+sigma_smooth – velocity dispersion in km/s. Default is 0.0.
+min_wave_smooth – minimum wavelength when smoothing spectrum. Default is 1e3.
+max_wave_smooth – maximum wavelength when smoothing spectrum. Default is 1e4.</p>
+</dd>
+</dl>
+</dd>
+<dt>fsps_optional – FSPS parameters that can be fit for. Any parameter left undefined here will be fit for. A value provided will fix that value for the fit. The string “default” will fix that parameter to the default value. Some of these parameters are only relevant for some of the inputs in the fsps_params category. If a parameter is not relevant based on those inputs, it will not be fit for and will be disregarded. Only a brief explanation is provided here. For more details, see FSPS documentation here.</dt><dd><p>logzsol - metallicity in log of solar metallicity units. Only used if zcontinuous is not 0. Default is 0.0.
+pmetals - power for the metallicity distribution function. Only used if zcontinuous is 2. Default is 2.0.
+gas_logu – log of gas ionization parameter. Only used for nebular emission. Default is -2.
+gas_logz – log of gas-phase metallicity. Only used for nebular emission. Default is 0.0.
+imf1 - Log of IMF slope between 0.08 and 0.5 solar masses. Only used if IMF is 2. Default is 1.3.
+imf2 - Log of IMF slope between 0.5 and 1 solar masses. Only used if IMF is 2. Default is 2.3.
+imf3 - Log of IMF slope above 1 solar mass. Only used if IMF is 2. Default is 2.3.
+imf_upper_limit - Upper limit of the IMF in solar masses. Default is 120.
+imf_lower_limit - Lower limit of the IMF in solar masses. Default is 0.08.
+sf_start – start time of the SFH In Gyr. Used when SFH is 1, 4, or 5. Default is 0.0.
+sf_trunc – truncation of SFH in Gyr. Used when SFH is 1, 4, or 5. No truncation if set to 0.0. Default is 0.0.
+tage – age in Gyr. Default is 0.0.
+fburst – fraction of mass formed in instantaneous burst. Only used if SFH is 1 or 4. Default is 0.0.
+tburst – age of the universe when the burst occurred. Only used if SFH is 1 or 4. Default is 11.0.
+sf_slope – slope of SFR after SFH truncation (sf_trunch). Only used if SFH is 5. Default is 0.0.
+tau – e-folding time of SFH in Gyr if SFH is 1 or 4. Default is 1.0.
+const – constant component of SFH if SFH is 1 or 4. Default is 0.0.
+dust_tesc – age over which stars are only attenuated by dust2; younger stars are attenuated by dust1 and dust2. Default is 7.0.
+dust1 – parameter for attenuation of young stellar light. Default is 0.0.
+dust2 – parameter for attenuation of all stellar light. Default is 0.0.
+dust3 – parameter for attenuation of old stellar light. Only used for some dust types. Default is 0.0.
+frac_nodust – fraction of star light not attenuated by any dust. Default is 0.0.
+frac_obrun – fraction representing runaway OB stars and escaping ionizing radiation. Default is 1.0.
+dust_index – power of attenuation curve. Only used when dust type is 0. Default is -0.7.
+dust1_index – power of attenuation curve for young stars. Default is -1.0.
+mwr – ratio of total to selective extinction when using MW extinction curve. Only used when dust type is 1. Default is 3.1.
+duste_gamma – relative contribution of dust heated at various field strengths in Draine and Li 2007. Default is 0.01.
+duste_umin – minimum radiation field strength in Draine and Li 2007. Default is 1.0.
+duste_qpah – grain size distribution in Draine and Li 2007. Default is 3.5.
+fagn – AGN luminosity fraction. Default is 0.0.
+agn_tau – optical depth of the AGN torus. Default is 10.
+agb_dust – scale of circumstellar AGB emission. Default is 1.0.
+dell – shift in the log of the bolometric luminosity of TP-AGB isochrones. Default is 0.0.
+delt – shift in the log of the effective temperature of TP-AGB isochrones. Default is 0.0.
+redgb – weight given to the red giant branch. Default is 1.0.
+agb – weight given to thermally pulsing AGB. Default is 1.0.
+fcstar – fraction of Padova carbon stars that will be given the FSPS carbon star spectrum. Default is 1.0.
+sbss – specific frequency of blue straggler stars. Default is 0.0.
+fbhb – fraction of horizontal branch stars that are blue. Default is 0.0.
+pagb – weight given to post-asymptotic giant branch phase. Default is 1.0.
+frac_xrb – scaling factor for x-ray source spectrum. Default is 1.0.
+vdmc – IMF parameter when IMF is 3, defined in van Dokkum 2008. Default is 0.08.
+mdave - IMF parameter when IMF is 4, defined in Dave 2008. Default is 0.5
+igm_factor – Scale of intergalactic medium depth. Default is 1.0.
+masscut – truncate IMF above this value in solar masses. Default is 150.
+uvb – strength of 2175Å extinction feature. Default is 1.0.
+logt_wmb_hot – Use Eldrige 2017 library for stars above this value of the log of the effective temperature. Default is 0.0, but will be 25000K if this value is lower than that.</p>
+</dd>
+<dt>bounds – the bounds to apply on any fit parameters, in the form [lower bound, upper bound], if use_bounds is True. Any parameter except age where a bound is not provided if use_bounds is True will be unbounded. Age is always bounded to the age of the universe unless overridden by another bounds input.</dt><dd><p>use_bounds (bool) – choice to use bounds or not. Age will be bound to the age of the universe if this is False. Age will always be bound from being less than zero, overriding any entered lower bound
+All others – the name of the variable to be bound. Enter bounds as [lower bound, upper bound]. A note: tau is used as a variable by both BC03 and FSPS, and is only in the list once. Keep this in mind if you are using FSPS and want to apply bounds to tau.</p>
+</dd>
+</dl>
 <p>To use sloeginphys in a project:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">sloeginphys</span>
 </pre></div>
