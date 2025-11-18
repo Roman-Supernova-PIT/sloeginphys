@@ -5,12 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Usage &#8212; sloeginphys 0.1.dev1+g8b6b42b94 documentation</title>
+    <title>Usage &#8212; sloeginphys 0.1.dev1+gaa8efaeed documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=5a6b8c39" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=f3bc516d" />
     <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
-    <script src="_static/documentation_options.js?v=fa1be3ff"></script>
+    <script src="_static/documentation_options.js?v=2eed2a9a"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -97,8 +97,8 @@
             
   <section id="usage">
 <h1>Usage<a class="headerlink" href="#usage" title="Link to this heading">¶</a></h1>
-<p># Fitter: Physically modeling host galaxies
-The fitter object uses spectroscopy and photometry of a host galaxy before a supernova to physically model the host. This can be used to subtract the host spectrum from the supernova, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting.</p>
+<p># Fitter: Physically modeling host galaxies</p>
+<p>The fitter object uses spectroscopy and photometry of a host galaxy before a supernova to physically model the host. This can be used to subtract the host spectrum from the supernova, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting.</p>
 <p>Some choices made when performing the fit will decrease the time cost but also decrease the precision and accuracy. Other choices will do the opposite—increasing time while also increasing precision and accuracy. These choices are as follows:</p>
 <p>method: The frequentist method to use when running the initial fit. Some choices will run faster or more accurately than others. Current default is the trf method from scipy.least_squares, which is generally fast and reliable. Other recommended methods are lm from least_squares and Nelder-Mead from optimize.</p>
 <p>use_bayes: If True, the full Bayesian fit will provide a more complete exploration of the parameter space and give a better uncertainty estimation. This can take a lot of time. If False, only the frequentist fit results are returned but the function runs much faster.</p>
