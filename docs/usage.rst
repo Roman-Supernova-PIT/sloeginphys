@@ -10,7 +10,7 @@ Some choices made when performing the fit will decrease the time cost but also d
 
 method: The frequentist method to use when running the initial fit. Some choices will run faster or more accurately than others. Current default is the trf method from scipy.least_squares, which is generally fast and reliable. Other recommended methods are lm from least_squares and Nelder-Mead from optimize. 
 
-use_bayes: If True, the full Bayesian fit will provide a more complete exploration of the parameter space and give a better uncertainty estimation. This can take a lot of time. If False, only the frequentist fit results are returned but the function runs much faster. 
+use_bayes: If True, the full Bayesian fit will provide a more complete exploration of the parameter space and give a better uncertainty estimation. This can take a lot of time. If False, only the frequentist fit results are returned but the function runs much faster. Note that right now use_bayes=True is NOT supported. 
 
 one_sed: If True, each pixel is assumed to have the same spectrum, so only one simulation is performed in each pass. This saves time, especially in cases where the host galaxy covers a large number of pixels, but means that local variations in the galaxy are not accounted for. If False, each pixel is assigned a unique SED. This required more simulations to be run, but allows the galaxy to vary more between locations. 
 
