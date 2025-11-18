@@ -5,12 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Usage &#8212; sloeginphys 0.1.dev1+g3634145af documentation</title>
+    <title>Usage &#8212; sloeginphys 0.1.dev1+g8b6b42b94 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=5a6b8c39" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=f3bc516d" />
     <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
-    <script src="_static/documentation_options.js?v=6591e7c9"></script>
+    <script src="_static/documentation_options.js?v=fa1be3ff"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -112,11 +112,13 @@ The fitter object uses spectroscopy and photometry of a host galaxy before a sup
 <li><p>SFH 7 is not currently supported.</p></li>
 <li><p>Right now, the command line outputs for BC03 are redirected into a log file named bc03_logfile.txt. This file will be saved in your working directory if you want to read it.</p></li>
 </ul>
-<p>FSPS:
-* SFH 2 and 3 are not currently supported. SFH 2 is not supported by pyFSPS and so is unlikely to become available in the future.
-* Any parameters that are not used by the IMF, SFH, dust, and other selections will not be fit for. Ensure that your desired fittable parameters match your non-iterable parameter choices.
-* Not setting any variable in the section fsps_params will leave it as the default
-* Not setting any variable in the section fsps_optional will mean it is fit for. To keep any variable in this section fixed, that is, to NOT fit it, set either to a chosen value or the string “default” to keep it as the default variable.</p>
+<p>FSPS:</p>
+<ul class="simple">
+<li><p>SFH 2 and 3 are not currently supported. SFH 2 is not supported by pyFSPS and so is unlikely to become available in the future.</p></li>
+<li><p>Any parameters that are not used by the IMF, SFH, dust, and other selections will not be fit for. Ensure that your desired fittable parameters match your non-iterable parameter choices.</p></li>
+<li><p>Not setting any variable in the section fsps_params will leave it as the default</p></li>
+<li><p>Not setting any variable in the section fsps_optional will mean it is fit for. To keep any variable in this section fixed, that is, to NOT fit it, set either to a chosen value or the string “default” to keep it as the default variable.</p></li>
+</ul>
 <p>The Fitter object
 The “fitter” object is the object that will perform the fitting. Its inputs are related to the host galaxy desired as the final output of the simulation. For example, if the supernova was first detected in image1.asdf,  the initial inputs for the fitter object should be related to image1.asdf. Fitter takes in the direct photometric image (not the spectroscopy image) of the discovery. When initialized, fitter creates a simulator object for this direct image,  finds the corresponding segmentation map, and retrieves data from the segmentation map that will be useful later. If direct image is not valid or there is no matching segmentation map, the object will not be created. The RA and DEC of the object to be fit can also be given here or added later. The spectrum image containing the supernova must also be provided.
 Fitter utility functions
