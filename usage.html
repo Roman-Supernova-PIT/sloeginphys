@@ -5,12 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Usage &#8212; sloeginphys 0.1.dev1+gaa8efaeed documentation</title>
+    <title>&lt;no title&gt; &#8212; sloeginphys 0.1.dev1+ge3f9ad570 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=5a6b8c39" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=f3bc516d" />
     <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
-    <script src="_static/documentation_options.js?v=2eed2a9a"></script>
+    <script src="_static/documentation_options.js?v=598cb9e0"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -47,9 +47,8 @@
 
 <h3>Navigation</h3>
 <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
-<ul class="current">
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="changes.html">Change Log</a></li>
 </ul>
 
@@ -95,9 +94,7 @@
 
           <div class="body" role="main">
             
-  <section id="usage">
-<h1>Usage<a class="headerlink" href="#usage" title="Link to this heading">¶</a></h1>
-<p># Fitter: Physically modeling host galaxies</p>
+  <p># Fitter: Physically modeling host galaxies</p>
 <p>The fitter object uses spectroscopy and photometry of a host galaxy before a supernova to physically model the host. This can be used to subtract the host spectrum from the supernova, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting.</p>
 <p>Some choices made when performing the fit will decrease the time cost but also decrease the precision and accuracy. Other choices will do the opposite—increasing time while also increasing precision and accuracy. These choices are as follows:</p>
 <p>method: The frequentist method to use when running the initial fit. Some choices will run faster or more accurately than others. Current default is the trf method from scipy.least_squares, which is generally fast and reliable. Other recommended methods are lm from least_squares and Nelder-Mead from optimize.</p>
@@ -284,7 +281,6 @@ All others – the name of the variable to be bound. Enter bounds as [lower boun
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">sloeginphys</span>
 </pre></div>
 </div>
-</section>
 
 
           </div>
