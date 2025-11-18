@@ -1,1 +1,0 @@
-..automodapi:: sloeginphys.fit
