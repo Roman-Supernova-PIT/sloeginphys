@@ -5,12 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Usage &#8212; sloeginphys 0.1.dev1+g1e4e7acee documentation</title>
+    <title>Usage &#8212; sloeginphys 0.1.dev1+g405b85c5d documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=5a6b8c39" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=f3bc516d" />
     <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
-    <script src="_static/documentation_options.js?v=63c0bfcf"></script>
+    <script src="_static/documentation_options.js?v=98b28c46"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -101,7 +101,7 @@
 <p>The fitter object uses spectroscopy and photometry of a host galaxy before a supernova to physically model the host. This can be used to subtract the host spectrum from the supernova, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting.</p>
 <p>Some choices made when performing the fit will decrease the time cost but also decrease the precision and accuracy. Other choices will do the opposite—increasing time while also increasing precision and accuracy. These choices are as follows:</p>
 <p>method: The frequentist method to use when running the initial fit. Some choices will run faster or more accurately than others. Current default is the trf method from scipy.least_squares, which is generally fast and reliable. Other recommended methods are lm from least_squares and Nelder-Mead from optimize.</p>
-<p>use_bayes: If True, the full Bayesian fit will provide a more complete exploration of the parameter space and give a better uncertainty estimation. This can take a lot of time. If False, only the frequentist fit results are returned but the function runs much faster.</p>
+<p>use_bayes: If True, the full Bayesian fit will provide a more complete exploration of the parameter space and give a better uncertainty estimation. This can take a lot of time. If False, only the frequentist fit results are returned but the function runs much faster. Note that right now use_bayes=True is NOT supported.</p>
 <p>one_sed: If True, each pixel is assumed to have the same spectrum, so only one simulation is performed in each pass. This saves time, especially in cases where the host galaxy covers a large number of pixels, but means that local variations in the galaxy are not accounted for. If False, each pixel is assigned a unique SED. This required more simulations to be run, but allows the galaxy to vary more between locations.</p>
 <p>sim_code: Choice to use either BC03 or FSPS to simulate the SEDs. BC03 allows for fewer inputs and provides fewer outputs, but runs much faster. FSPS runs slower, but allows a great diversity of input parameters and outputs many useful quantities. Only FSPS can fit for metallicity at this point. Note: the number of FSPS parameters to fit may also impact runtime.</p>
 <p>BC03 and FSPS behave differently in execution. Because BC03 uses a smaller number of input parameters, all parameters based on the inputs will automatically be fit for. FSPS can have an enormous number of input parameters, so you must select which ones you want to run. Further specific notes are below.</p>
