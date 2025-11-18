@@ -25,6 +25,7 @@ BC03:
 * Right now, the command line outputs for BC03 are redirected into a log file named bc03_logfile.txt. This file will be saved in your working directory if you want to read it. 
 
 FSPS:
+
 * SFH 2 and 3 are not currently supported. SFH 2 is not supported by pyFSPS and so is unlikely to become available in the future. 
 * Any parameters that are not used by the IMF, SFH, dust, and other selections will not be fit for. Ensure that your desired fittable parameters match your non-iterable parameter choices. 
 * Not setting any variable in the section fsps_params will leave it as the default
