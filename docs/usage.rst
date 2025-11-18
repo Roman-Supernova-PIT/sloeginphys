@@ -18,7 +18,9 @@ sim_code: Choice to use either BC03 or FSPS to simulate the SEDs. BC03 allows fo
 BC03 and FSPS behave differently in execution. Because BC03 uses a smaller number of input parameters, all parameters based on the inputs will automatically be fit for. FSPS can have an enormous number of input parameters, so you must select which ones you want to run. Further specific notes are below. 
 
 BC03: 
-+ For SFH1 or -1, ensure gas recycling is set and that epsilon is included in the initial guess. 
+
+* For SFH1 or -1, ensure gas recycling is set and that epsilon is included in the initial guess. 
+
 + For SFH 6, file names cannot be iterated over. In general this SED choice is not recommended. 
 + SFH 7 is not currently supported. 
 + Right now, the command line outputs for BC03 are redirected into a log file named bc03_logfile.txt. This file will be saved in your working directory if you want to read it. 
