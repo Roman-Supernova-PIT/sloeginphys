@@ -34,45 +34,57 @@ FSPS:
 * Not setting any variable in the section fsps_optional will mean it is fit for. To keep any variable in this section fixed, that is, to NOT fit it, set either to a chosen value or the string “default” to keep it as the default variable. 
 
 The Fitter object
+=================
 
 The “fitter” object is the object that will perform the fitting. Its inputs are related to the host galaxy desired as the final output of the simulation. For example, if the supernova was first detected in image1.asdf,  the initial inputs for the fitter object should be related to image1.asdf. Fitter takes in the direct photometric image (not the spectroscopy image) of the discovery. When initialized, fitter creates a simulator object for this direct image,  finds the corresponding segmentation map, and retrieves data from the segmentation map that will be useful later. If direct image is not valid or there is no matching segmentation map, the object will not be created. The RA and DEC of the object to be fit can also be given here or added later. The spectrum image containing the supernova must also be provided. 
 
 Fitter utility functions
+========================
 
 The fitter object contains several utility functions to aid in setting up the fit.
 
 pick_object(id)
+---------------
 
 This function allows the user to select the object they want to fit from a segmentation map containing many objects. The input is the number assigned to that object in the segmentation map, which can be either found by hand or retrieved with one of the get_ID functions below. This function recreates the simulator object, writes new segmentation map data, and rewrites other relevant parameters as needed. If the ID is not present in the segmentation map, this function returns an error. 
 
 get_ID_xy(x, y)
+--------------
 
 This function retrieves the number assigned to the object at pixel coordinates (x, y) based on the segmentation map
 
 get_ID_ad(ra, dec) 
+------------------
 
 This function retrieves the number assigned to the object at world coordinates (ra, dec) based on the segmentation map
 
 make_map(ra, dec)
+-----------------
 
 This function combines get_ID_ad and pick_object. If RA and DEC were provided at initialization, they do not need to be given again here. If RA and DEC were provided and are also input in this function, the RA and DEC input in the function will override the RA and DEC from initialization. 
 
 The fit function
+================
 
 This is the primary function of the object that performs the fit. It requires as input the data that should be used in the fit, an initial guess, and a configuration file. Its outputs are configurable and include the parameters of the best fit, the simulated best fit image, and the simulated best fit image subtracted from the image containing the supernova. It can either automatically retrieve all data from the Roman database containing given coordinates with certain criteria or use only a provided list of files or image IDs. It can also fit using files in a local directory or personal machine. 
 
 Input data 
+----------
 
 The input data is divided in spectroscopic and photometric data. If using the NERSC database, data can be pulled automatically based on coordinates and date, or specifically using a list of file paths and/or UUIDs. If using local data, each can be provided as a path to the files in the form of a string or as a list of strings that are complete paths to the desired files. Set to “None” if not using this type of data for local machines. The program will not proceed if no valid data is provided. Note that using “local” will assume that the provided files are in fits format. 
 
 Initial guess
+-------------
 
 The initial guess is a vector containing initial guesses for the desired fit parameters. The length must match what the program expects based on the number of fit parameters and the number of pixels. If this is not the case, the program will stop and log an error. 
 
 Configuration file
+------------------
+
 The configuration file contains all the information needed to perform the fit. As much as possible, the function will ensure these parameters are valid and prevent the program from proceeding if they are not. It will also log an error stating which parameter is incorrect. An example configuration file is provided [here]. More details on the parameter options are also given below. 
 
 Timing
+------
 
 Some sections may take a lot of time and it can be difficult to tell if this is a problem or not. Reference times are provided here. If your program routinely exceeds these times, there may be something wrong. Any portion not specified here should not take more than a minute or two. 
 
@@ -85,22 +97,31 @@ Simulating best-fit image – Should be on the order of seconds to a minute. Lon
 A note: in some cases, this code may take a long time to run. One useful thing you can do is import Audio from IPython and set a sound file to play automatically after the code has run. I find this helpful because I can do other things and return to the long-running code when it’s done. 
 
 Troubleshooting
+---------------
 
 For the most part, error messages produced by the code will be written to the log and should be informative on the cause of the problem. Assertion errors may appear directly in the environment where the code is run, but should also be largely informative on the variable causing the problem. Listed here are errors I have encountered in testing. If you find new errors that are not already addressed here, please reach out to me at isaac413@umn.edu. I will add it here with a solution if possible. 
 
 
 Common errors
+-------------
 Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses.   
 
 Configuration options
+=====================
 
-run: variables controlling the run of the code
+run
+---
+
+variables controlling the run of the code
 
 local (bool) – choice to use local data or pull from the database. If True, provide a directory containing the files or a list of files to fit. If False, provided coordinates and a date range or a list of file paths and/or UUIDs. Default is False, pulling from the database. 
 
 verbose (bool, optional) – choice of what to write to the log. If False, the code runs without saying much. If True, states what is being done and times certain operations that may take longer, as well as providing a total runtime. Can be used to spot the point of a failure or figure out which part is taking mor time than it should. 
 
-paths: various paths to various files
+paths
+-----
+
+various paths to various files
 
 working_dir (string) – the directory where all the files produced by the fit should be saved. Must end with “/”. Must already exist. 
 
@@ -110,7 +131,10 @@ ised_dir (string) – path to the ised files to be used. Requires the user to ch
 
 sps_home (string, optional) – path to SPS files for FSPS. Can be set elsewhere, such as in your .bashrc or in the imports section of this file. Must be set somewhere. 
 
-output: control which outputs you are interested in
+output
+------
+
+control which outputs you are interested in
 
 return_fit (bool) – choice to return the best fit parameters with the parameter dictionary for context and the chi^2 value for the best fit. Default is True. 
 
@@ -132,7 +156,10 @@ subtracted_name (string, optional) – name to give the saved subtracted image f
 
 full_bayes (bool) – choice to return the full Bayesian analysis of the fit, including full chains. If False, still returns the best estimations of the parameters from the Bayesian fit. Default is False. 
 
-temp: Properties that will eventually be pulled from the database or hard-coded in. 
+temp
+----
+
+properties that will eventually be pulled from the database or hard-coded in. 
 
 z (float) – the redshift of the object, NOT metallicity. This is required to run the fit and must be greater than zero. It is currently retrieved from the truth tables
 
@@ -144,7 +171,10 @@ spec_process (string) – the process to use for spectra if automatically retrie
 
 phot_process (string) – the process to use for photometry if automatically retrieving data
 
-params: actual parameters of the fit. These will be included in the provenance. 
+params
+------
+
+actual parameters of the fit. These will be included in the provenance. 
 
 mjd_min_offset (float) – lowest MJD offset from discovery to use if automatically retrieving data. Default is 90, i.e. no images will be pulled more than 90 days before discovery 
 
