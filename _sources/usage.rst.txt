@@ -104,6 +104,7 @@ For the most part, error messages produced by the code will be written to the lo
 
 Common errors
 -------------
+
 Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses.   
 
 Configuration options
@@ -112,7 +113,7 @@ Configuration options
 run
 ---
 
-variables controlling the run of the code
+Variables controlling the run of the code
 
 local (bool) – choice to use local data or pull from the database. If True, provide a directory containing the files or a list of files to fit. If False, provided coordinates and a date range or a list of file paths and/or UUIDs. Default is False, pulling from the database. 
 
@@ -121,7 +122,7 @@ verbose (bool, optional) – choice of what to write to the log. If False, the c
 paths
 -----
 
-various paths to various files
+Various paths to various files
 
 working_dir (string) – the directory where all the files produced by the fit should be saved. Must end with “/”. Must already exist. 
 
@@ -134,7 +135,7 @@ sps_home (string, optional) – path to SPS files for FSPS. Can be set elsewhere
 output
 ------
 
-control which outputs you are interested in
+Control which outputs you are interested in
 
 return_fit (bool) – choice to return the best fit parameters with the parameter dictionary for context and the chi^2 value for the best fit. Default is True. 
 
@@ -159,7 +160,7 @@ full_bayes (bool) – choice to return the full Bayesian analysis of the fit, in
 temp
 ----
 
-properties that will eventually be pulled from the database or hard-coded in. 
+Properties that will eventually be pulled from the database or hard-coded in. 
 
 z (float) – the redshift of the object, NOT metallicity. This is required to run the fit and must be greater than zero. It is currently retrieved from the truth tables
 
@@ -174,7 +175,7 @@ phot_process (string) – the process to use for photometry if automatically ret
 params
 ------
 
-actual parameters of the fit. These will be included in the provenance. 
+Actual parameters of the fit. These will be included in the provenance. 
 
 mjd_min_offset (float) – lowest MJD offset from discovery to use if automatically retrieving data. Default is 90, i.e. no images will be pulled more than 90 days before discovery 
 
