@@ -216,157 +216,157 @@ recyc (bool, optional) – choice to use gas recycling if SFH is 1 or -1. Defaul
 
 fsps_params – non-iterable parameters for performing the FSPS simulation. Any parameters that are not set here will be set to the default based on the FSPS documentation. Only brief summary of these parameters is provided here. For more details, see FSPS documentation here. 
 
-zcontinuous -choice for how metallicity interpolation is performed. Default is 0.
+zcontinuous (int) -choice for how metallicity interpolation is performed. Default is 0.
 
-zmet – metallicity as an integer between 1 and nz. Only used if zcontinuous is 0. Default is 1.
+zmet (int) – metallicity as an integer between 1 and nz. Only used if zcontinuous is 0. Default is 1.
 
-imf_type - initial mass function choice. Default is 2. 
+imf_type (int) - initial mass function choice. Default is 2. 
 
-sfh - star formation history choice. Options 2 and 3 are not supported. Default is 0. 
+sfh (int) - star formation history choice. Options 2 and 3 are not supported. Default is 0. 
 
-dust_type - dust type choice. Default is 0. 
+dust_type (int) - dust type choice. Default is 0. 
 
-tpagb_norm_type - normalization of thermally pulsing AGB stars. Default is 2. 
+tpagb_norm_type (int) - normalization of thermally pulsing AGB stars. Default is 2. 
 
-wgp1 – optical depth in Witt and Gordon 2000 
+wgp1 (int) – optical depth in Witt and Gordon 2000 
 
-wgp2 – large-scale geometry and extinction from Witt and Gordon 2000. 
+wgp2 (int) – large-scale geometry and extinction from Witt and Gordon 2000. 
 
-wgp3 – local geometry for Witt and Gordon 2000 models. 
+wgp3 (int) – local geometry for Witt and Gordon 2000 models. 
 
-add_agb_dust_model - toggle asymptotic giant branch dust model. Default is True.
+add_agb_dust_model (bool) - toggle asymptotic giant branch dust model. Default is True.
 
-add_dust_emission - toggle dust emission model from Draine and Li 2007. Default is True.
+add_dust_emission (bool) - toggle dust emission model from Draine and Li 2007. Default is True.
 
-add_igm_absorption - toggle intergalactic medium absorption. Default is False. 
+add_igm_absorption (bool) - toggle intergalactic medium absorption. Default is False. 
 
-add_neb_emission - toggle nebular emission modeling. Default is False. 
+add_neb_emission (bool) - toggle nebular emission modeling. Default is False. 
 
-add_neb_continuum - toggle nebular continuum component. Default is True, but is set to False if add_neb_emission is False. 
+add_neb_continuum (bool) - toggle nebular continuum component. Default is True, but is set to False if add_neb_emission is False. 
 
-add_stellar_remnants - toggle stellar remnant inclusion in stellar mass. Default is True.
+add_stellar_remnants (bool) - toggle stellar remnant inclusion in stellar mass. Default is True.
 
-compute_light_ages - toggle choice of light or mass weighted ages. Default is False.
+compute_light_ages (bool) - toggle choice of light or mass weighted ages. Default is False.
 
-nebemlineinspec - toggle inclusion of emission line fluxes in spectrum. Default is True.
+nebemlineinspec (bool) - toggle inclusion of emission line fluxes in spectrum. Default is True.
 
-smooth_velocity - toggle smoothing in velocity or wavelength space. Default is True.
+smooth_velocity (bool) - toggle smoothing in velocity or wavelength space. Default is True.
 
-smooth_lsf - toggle smoothing of SSPs by wavelength-dependent function. Only used if smooth_velocity is True. Default is False. 
+smooth_lsf (bool) - toggle smoothing of SSPs by wavelength-dependent function. Only used if smooth_velocity is True. Default is False. 
 
-cloudy_dust - toggle inclusion of dust in Cloudy tables. Default is False. 
+cloudy_dust (bool) - toggle inclusion of dust in Cloudy tables. Default is False. 
 
-use_wr_spectra – toggle use of WR spectral library. Default is 1. 
+use_wr_spectra (int) – toggle use of WR spectral library. Default is 1. 
 
-add_xrb_emission – toggle x-ray binary population. Default is 0. 
+add_xrb_emission (int) – toggle x-ray binary population. Default is 0. 
 
-sigma_smooth – velocity dispersion in km/s. Default is 0.0.
+sigma_smooth (float) – velocity dispersion in km/s. Default is 0.0.
 
-min_wave_smooth – minimum wavelength when smoothing spectrum. Default is 1e3.
+min_wave_smooth (float) – minimum wavelength when smoothing spectrum. Default is 1e3.
 
-max_wave_smooth – maximum wavelength when smoothing spectrum. Default is 1e4. 
+max_wave_smooth (float) – maximum wavelength when smoothing spectrum. Default is 1e4. 
 
 fsps_optional – FSPS parameters that can be fit for. Any parameter left undefined here will be fit for. A value provided will fix that value for the fit. The string “default” will fix that parameter to the default value. Some of these parameters are only relevant for some of the inputs in the fsps_params category. If a parameter is not relevant based on those inputs, it will not be fit for and will be disregarded. Only a brief explanation is provided here. For more details, see FSPS documentation here. 
 
-logzsol - metallicity in log of solar metallicity units. Only used if zcontinuous is not 0. Default is 0.0.
+logzsol (float or "default") - metallicity in log of solar metallicity units. Only used if zcontinuous is not 0. Default is 0.0.
 
-pmetals - power for the metallicity distribution function. Only used if zcontinuous is 2. Default is 2.0. 
+pmetals (float or "default") - power for the metallicity distribution function. Only used if zcontinuous is 2. Default is 2.0. 
 
-gas_logu – log of gas ionization parameter. Only used for nebular emission. Default is -2. 
+gas_logu (float or "default") – log of gas ionization parameter. Only used for nebular emission. Default is -2. 
 
-gas_logz – log of gas-phase metallicity. Only used for nebular emission. Default is 0.0. 
+gas_logz (float or "default") – log of gas-phase metallicity. Only used for nebular emission. Default is 0.0. 
 
-imf1 - Log of IMF slope between 0.08 and 0.5 solar masses. Only used if IMF is 2. Default is 1.3.
+imf1 (float or "default") - Log of IMF slope between 0.08 and 0.5 solar masses. Only used if IMF is 2. Default is 1.3.
 
-imf2 - Log of IMF slope between 0.5 and 1 solar masses. Only used if IMF is 2. Default is 2.3.
+imf2 (float or "default") - Log of IMF slope between 0.5 and 1 solar masses. Only used if IMF is 2. Default is 2.3.
 
-imf3 - Log of IMF slope above 1 solar mass. Only used if IMF is 2. Default is 2.3.  
+imf3 (float or "default") - Log of IMF slope above 1 solar mass. Only used if IMF is 2. Default is 2.3.  
 
-imf_upper_limit - Upper limit of the IMF in solar masses. Default is 120. 
+imf_upper_limit (float or "default") - Upper limit of the IMF in solar masses. Default is 120. 
 
-imf_lower_limit - Lower limit of the IMF in solar masses. Default is 0.08.
+imf_lower_limit (float or "default") - Lower limit of the IMF in solar masses. Default is 0.08.
 
-sf_start – start time of the SFH In Gyr. Used when SFH is 1, 4, or 5. Default is 0.0. 
+sf_start (float or "default") – start time of the SFH In Gyr. Used when SFH is 1, 4, or 5. Default is 0.0. 
 
-sf_trunc – truncation of SFH in Gyr. Used when SFH is 1, 4, or 5. No truncation if set to 0.0. Default is 0.0. 
+sf_trunc (float or "default") – truncation of SFH in Gyr. Used when SFH is 1, 4, or 5. No truncation if set to 0.0. Default is 0.0. 
 
-tage – age in Gyr. Default is 0.0. 
+tage (float or "default") – age in Gyr. Default is 0.0; default NOT permitted here. 
 
-fburst – fraction of mass formed in instantaneous burst. Only used if SFH is 1 or 4. Default is 0.0. 
+fburst (float or "default") – fraction of mass formed in instantaneous burst. Only used if SFH is 1 or 4. Default is 0.0. 
 
-tburst – age of the universe when the burst occurred. Only used if SFH is 1 or 4. Default is 11.0. 
+tburst (float or "default") – age of the universe when the burst occurred. Only used if SFH is 1 or 4. Default is 11.0. 
 
-sf_slope – slope of SFR after SFH truncation (sf_trunch). Only used if SFH is 5. Default is 0.0. 
+sf_slope (float or "default") – slope of SFR after SFH truncation (sf_trunch). Only used if SFH is 5. Default is 0.0. 
 
-tau – e-folding time of SFH in Gyr if SFH is 1 or 4. Default is 1.0. 
+tau (float or "default") – e-folding time of SFH in Gyr if SFH is 1 or 4. Default is 1.0. 
 
-const – constant component of SFH if SFH is 1 or 4. Default is 0.0. 
+const (float or "default") – constant component of SFH if SFH is 1 or 4. Default is 0.0. 
 
-dust_tesc – age over which stars are only attenuated by dust2; younger stars are attenuated by dust1 and dust2. Default is 7.0. 
+dust_tesc (float or "default") – age over which stars are only attenuated by dust2; younger stars are attenuated by dust1 and dust2. Default is 7.0. 
 
-dust1 – parameter for attenuation of young stellar light. Default is 0.0. 
+dust1 (float or "default") – parameter for attenuation of young stellar light. Default is 0.0. 
 
-dust2 – parameter for attenuation of all stellar light. Default is 0.0. 
+dust2 (float or "default") – parameter for attenuation of all stellar light. Default is 0.0. 
 
-dust3 – parameter for attenuation of old stellar light. Only used for some dust types. Default is 0.0. 
+dust3 (float or "default") – parameter for attenuation of old stellar light. Only used for some dust types. Default is 0.0. 
 
-frac_nodust – fraction of star light not attenuated by any dust. Default is 0.0. 
+frac_nodust (float or "default") – fraction of star light not attenuated by any dust. Default is 0.0. 
 
-frac_obrun – fraction representing runaway OB stars and escaping ionizing radiation. Default is 1.0.  
+frac_obrun (float or "default") – fraction representing runaway OB stars and escaping ionizing radiation. Default is 1.0.  
 
-dust_index – power of attenuation curve. Only used when dust type is 0. Default is -0.7. 
+dust_index (float or "default") – power of attenuation curve. Only used when dust type is 0. Default is -0.7. 
 
-dust1_index – power of attenuation curve for young stars. Default is -1.0. 
+dust1_index (float or "default") – power of attenuation curve for young stars. Default is -1.0. 
 
-mwr – ratio of total to selective extinction when using MW extinction curve. Only used when dust type is 1. Default is 3.1. 
+mwr (float or "default") – ratio of total to selective extinction when using MW extinction curve. Only used when dust type is 1. Default is 3.1. 
 
-duste_gamma – relative contribution of dust heated at various field strengths in Draine and Li 2007. Default is 0.01. 
+duste_gamma (float or "default") – relative contribution of dust heated at various field strengths in Draine and Li 2007. Default is 0.01. 
 
-duste_umin – minimum radiation field strength in Draine and Li 2007. Default is 1.0. 
+duste_umin (float or "default") – minimum radiation field strength in Draine and Li 2007. Default is 1.0. 
 
-duste_qpah – grain size distribution in Draine and Li 2007. Default is 3.5. 
+duste_qpah (float or "default") – grain size distribution in Draine and Li 2007. Default is 3.5. 
 
-fagn – AGN luminosity fraction. Default is 0.0. 
+fagn (float or "default") – AGN luminosity fraction. Default is 0.0. 
 
-agn_tau – optical depth of the AGN torus. Default is 10. 
+agn_tau (float or "default") – optical depth of the AGN torus. Default is 10. 
 
-agb_dust – scale of circumstellar AGB emission. Default is 1.0. 
+agb_dust (float or "default") – scale of circumstellar AGB emission. Default is 1.0. 
 
-dell – shift in the log of the bolometric luminosity of TP-AGB isochrones. Default is 0.0.
+dell (float or "default") – shift in the log of the bolometric luminosity of TP-AGB isochrones. Default is 0.0.
 
-delt – shift in the log of the effective temperature of TP-AGB isochrones. Default is 0.0.
+delt (float or "default") – shift in the log of the effective temperature of TP-AGB isochrones. Default is 0.0.
 
-redgb – weight given to the red giant branch. Default is 1.0.
+redgb (float or "default") – weight given to the red giant branch. Default is 1.0.
 
-agb – weight given to thermally pulsing AGB. Default is 1.0.
+agb (float or "default") – weight given to thermally pulsing AGB. Default is 1.0.
 
-fcstar – fraction of Padova carbon stars that will be given the FSPS carbon star spectrum. Default is 1.0.
+fcstar (float or "default") – fraction of Padova carbon stars that will be given the FSPS carbon star spectrum. Default is 1.0.
 
-sbss – specific frequency of blue straggler stars. Default is 0.0.
+sbss (float or "default") – specific frequency of blue straggler stars. Default is 0.0.
 
-fbhb – fraction of horizontal branch stars that are blue. Default is 0.0.
+fbhb (float or "default") – fraction of horizontal branch stars that are blue. Default is 0.0.
 
-pagb – weight given to post-asymptotic giant branch phase. Default is 1.0.
+pagb (float or "default") – weight given to post-asymptotic giant branch phase. Default is 1.0.
 
-frac_xrb – scaling factor for x-ray source spectrum. Default is 1.0.
+frac_xrb (float or "default") – scaling factor for x-ray source spectrum. Default is 1.0.
 
-vdmc – IMF parameter when IMF is 3, defined in van Dokkum 2008. Default is 0.08.
+vdmc (float or "default") – IMF parameter when IMF is 3, defined in van Dokkum 2008. Default is 0.08.
 
-mdave - IMF parameter when IMF is 4, defined in Dave 2008. Default is 0.5
+mdave (float or "default") - IMF parameter when IMF is 4, defined in Dave 2008. Default is 0.5
 
-igm_factor – Scale of intergalactic medium depth. Default is 1.0.
+igm_factor (float or "default") – Scale of intergalactic medium depth. Default is 1.0.
 
-masscut – truncate IMF above this value in solar masses. Default is 150. 
+masscut (float or "default") – truncate IMF above this value in solar masses. Default is 150. 
 
-uvb – strength of 2175Å extinction feature. Default is 1.0. 
+uvb (float or "default") – strength of 2175Å extinction feature. Default is 1.0. 
 
-logt_wmb_hot – Use Eldrige 2017 library for stars above this value of the log of the effective temperature. Default is 0.0, but will be 25000K if this value is lower than that.  
+logt_wmb_hot (float or "default") – Use Eldrige 2017 library for stars above this value of the log of the effective temperature. Default is 0.0, but will be 25000K if this value is lower than that.  
 
 bounds – the bounds to apply on any fit parameters, in the form [lower bound, upper bound], if use_bounds is True. Any parameter except age where a bound is not provided if use_bounds is True will be unbounded. Age is always bounded to the age of the universe unless overridden by another bounds input. 
 
 use_bounds (bool) – choice to use bounds or not. Age will be bound to the age of the universe if this is False. Age will always be bound from being less than zero, overriding any entered lower bound
 
-All others – the name of the variable to be bound. Enter bounds as [lower bound, upper bound]. A note: tau is used as a variable by both BC03 and FSPS, and is only in the list once. Keep this in mind if you are using FSPS and want to apply bounds to tau. 	 
+All others ([float, float]) – the name of the variable to be bound. Enter bounds as [lower bound, upper bound]. A note: tau is used as a variable by both BC03 and FSPS, and is only in the list once. Keep this in mind if you are using FSPS and want to apply bounds to tau. 	 
 
 
 To use sloeginphys in a project::
