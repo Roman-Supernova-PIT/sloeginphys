@@ -2,7 +2,7 @@
 Usage
 =====
 
-#Fitter: Physically modeling host galaxies
+# Fitter: Physically modeling host galaxies
 The fitter object uses spectroscopy and photometry of a host galaxy before a supernova to physically model the host. This can be used to subtract the host spectrum from the supernova, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting. 
 
 Some choices made when performing the fit will decrease the time cost but also decrease the precision and accuracy. Other choices will do the opposite—increasing time while also increasing precision and accuracy. These choices are as follows:
@@ -18,15 +18,15 @@ sim_code: Choice to use either BC03 or FSPS to simulate the SEDs. BC03 allows fo
 BC03 and FSPS behave differently in execution. Because BC03 uses a smaller number of input parameters, all parameters based on the inputs will automatically be fit for. FSPS can have an enormous number of input parameters, so you must select which ones you want to run. Further specific notes are below. 
 
 BC03: 
-•	For SFH1 or -1, ensure gas recycling is set and that epsilon is included in the initial guess. 
-•	For SFH 6, file names cannot be iterated over. In general this SED choice is not recommended. 
-•	SFH 7 is not currently supported. 
-•	Right now, the command line outputs for BC03 are redirected into a log file named bc03_logfile.txt. This file will be saved in your working directory if you want to read it. 
++ For SFH1 or -1, ensure gas recycling is set and that epsilon is included in the initial guess. 
++ For SFH 6, file names cannot be iterated over. In general this SED choice is not recommended. 
++ SFH 7 is not currently supported. 
++ Right now, the command line outputs for BC03 are redirected into a log file named bc03_logfile.txt. This file will be saved in your working directory if you want to read it. 
 FSPS:
-•	SFH 2 and 3 are not currently supported. SFH 2 is not supported by pyFSPS and so is unlikely to become available in the future. 
-•	Any parameters that are not used by the IMF, SFH, dust, and other selections will not be fit for. Ensure that your desired fittable parameters match your non-iterable parameter choices. 
-•	Not setting any variable in the section fsps_params will leave it as the default
-•	Not setting any variable in the section fsps_optional will mean it is fit for. To keep any variable in this section fixed, that is, to NOT fit it, set either to a chosen value or the string “default” to keep it as the default variable. 
++ SFH 2 and 3 are not currently supported. SFH 2 is not supported by pyFSPS and so is unlikely to become available in the future. 
++ Any parameters that are not used by the IMF, SFH, dust, and other selections will not be fit for. Ensure that your desired fittable parameters match your non-iterable parameter choices. 
++ Not setting any variable in the section fsps_params will leave it as the default
++ Not setting any variable in the section fsps_optional will mean it is fit for. To keep any variable in this section fixed, that is, to NOT fit it, set either to a chosen value or the string “default” to keep it as the default variable. 
 
 The Fitter object
 The “fitter” object is the object that will perform the fitting. Its inputs are related to the host galaxy desired as the final output of the simulation. For example, if the supernova was first detected in image1.asdf,  the initial inputs for the fitter object should be related to image1.asdf. Fitter takes in the direct photometric image (not the spectroscopy image) of the discovery. When initialized, fitter creates a simulator object for this direct image,  finds the corresponding segmentation map, and retrieves data from the segmentation map that will be useful later. If direct image is not valid or there is no matching segmentation map, the object will not be created. The RA and DEC of the object to be fit can also be given here or added later. The spectrum image containing the supernova must also be provided. 
