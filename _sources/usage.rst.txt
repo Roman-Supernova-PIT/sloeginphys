@@ -13,7 +13,7 @@ method: The frequentist method to use when running the initial fit. Some choices
 
 use_bayes: If True, the full Bayesian fit will provide a more complete exploration of the parameter space and give a better uncertainty estimation. This can take a lot of time. If False, only the frequentist fit results are returned but the function runs much faster. Note that right now use_bayes=True is NOT supported. 
 
-one_sed: If True, each pixel is assumed to have the same spectrum, so only one simulation is performed in each pass. This saves time, especially in cases where the host galaxy covers a large number of pixels, but means that local variations in the galaxy are not accounted for. If False, each pixel is assigned a unique SED. This required more simulations to be run, but allows the galaxy to vary more between locations. 
+one_sed: If True, each pixel is assumed to have the same spectrum, so only one simulation is performed in each pass. This saves time, especially in cases where the host galaxy covers a large number of pixels, but means that local variations in the galaxy are not accounted for. If False, each pixel is assigned a unique SED. This requires more simulations to be run, but allows the galaxy to vary more between locations. 
 
 sim_code: Choice to use either BC03 or FSPS to simulate the SEDs. BC03 allows for fewer inputs and provides fewer outputs, but runs much faster. FSPS runs slower, but allows a great diversity of input parameters and outputs many useful quantities. Only FSPS can fit for metallicity at this point. Note: the number of FSPS parameters to fit may also impact runtime. 
 
