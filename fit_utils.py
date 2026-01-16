@@ -1,9 +1,9 @@
 import numpy as np
 from astropy.wcs import WCS
 from pypolyclip import clip_multi
-from roman_wfss.modeling.linear.WFSSImageSimulator_NERSC import WFSSImageSimulator_NERSC
+from .WFSSImageCollection import WFSSImageSimulator_nohdr
 
-def overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data, band, sca):
+def overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data):
     naxis=(xmax, ymax)
     #Find which pixels in the data correspond to pixels in the reference image
     xPos=np.transpose(pixPos)[1]
@@ -54,8 +54,8 @@ def overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data, band, sca
                         pixel_list.append([x, y, new_xc, new_yc, new_area])
     if(spec==True):
         #Make the simulator with the new segmentation map. Prevents us from simulating an entire empty image.
-        test_sim=WFSSImageSimulator_NERSC(data, data_wcs, new_seg_data, ref_wcs, "PRISM", sca, xmax, ymax)
-        return(pixel_list, test_sim, new_seg_data)
+        test_sim=WFSSImageSimulator_nohdr(data, new_seg_data, data_wcs, "SNPrism")
+        return(pixel_list, test_sim)
     else:
         return(pixel_list, new_seg_data)
 
@@ -116,7 +116,6 @@ def make_SED_bc03(working_dir, one_sed, theta, plength, pixPos, ised_dir, csp_pa
 
 def make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, pixPos):
     if(one_sed==True):
-        params = theta[int(0 * plength) : int((0 + 1) * plength)]
         for j in range(0, len(param_dict)):
             sp.params[param_dict[j]] = params[j]
             #This is kind of a cheat. tage is a parameter in sp but must also be input in making the spectrum, so here we set it with all the others, then pull it out for actually making the spectrum
@@ -137,7 +136,7 @@ def make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, pixPos):
                 spec = np.transpose(spec)
                 np.savetxt(working_dir+str(pixPos[i][0])+"_"+str(pixPos[i][1])+".txt", spec)
 
-def translate_SED(test_pixPos, pix, one_sed, working_dir, z, cosmo, verbose=False):
+def translate_SED(test_pixPos, pix, one_sed, working_dir, z, cosmo):
     #Multiply the spectra and add them to the simulator
     for q in range(0, len(test_pixPos)):
         #Get spectra and multiply
@@ -145,14 +144,10 @@ def translate_SED(test_pixPos, pix, one_sed, working_dir, z, cosmo, verbose=Fals
         y=test_pixPos[q][0]
         x=test_pixPos[q][1]
         pix_params=[]
-        if(verbose==True):
-            print("Verbose working")
         #Get the polyclip parameters
         for t in range(0, len(pix)):
             test_x=pix[t][0]
             test_y=pix[t][1]
-            if(test_x==x):
-                print(y, test_y)
             if(test_x==x and test_y==y):
                 pix_params=pix[t]
         xc=pix_params[2]

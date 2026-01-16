@@ -1,12 +1,10 @@
-__all__=["fitter"]
-
 import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.cosmology import FlatLambdaCDM
-from astropy.coordinates import SkyCoord
-from astropy import units as u
-from roman_wfss.modeling.linear import WFSSImageSimulator_NERSC
+from .WFSSImageCollection import WFSSImageSimulator
+from .WFSSImageCollection import WFSSImageSimulator_nohdr
+from .myUtils import *
 from .bc03utils import make_spec
 from .fit_utils import overlap, make_SED_bc03, make_SED_fsps, translate_SED
 from scipy.optimize import least_squares, minimize
@@ -32,27 +30,14 @@ except:
 #    print("emcee not installed. Cannot use Bayesian statistics in fitting.")
 
 class fitter:
-    def __init__(self, direct_image, sn_image, local=False, segmap=None, ra=None, dec=None):
+    def __init__(self, direct_image, local=False, segmap=None, ra=None, dec=None):
         """Initialize the object
-        Parameters
-        ----------
-        direct_image: string 
-            If non-local, UUID of the direct image containing the final fit galaxy. If local, path to the fits file where the direct image for the final desired galaxy fit is
-        sn_image: string 
-            If non-local, UUID of the prism image containing the supernova. If local, path to the fits file where the prism image containing the supernova is
-        local: bool, optional
-            Whether to run locally (pulling files from your own machine or local directories) or non-locally (pulling information from the Roman database). Default is False
-        segmap: 2d array or string, optional 
-            If local, this is required, and is the path to the segmentation map corresponding to the direct image. If non-local, this is NOT required and SHOULD be pulled automatically, but CAN be provided for testing or other unusual circumstances
-        ra: float, optional
-            Right ascension of the object of interest, e.g. the host galaxy. Can also be added later
-        dec: float, optional 
-            Declination of the object of interest, e.g. the host galaxy. Can also be added later
-        Returns
-        -------
+        Parameters:
+            direct_image (string) - path to the fits file where the direct image for the final desired galaxy fit is
+        Outputs:
             None; creates object and defines quantities that will be useful later"""
         #Create log
-        self.log=SNLogger()
+        self.log=SNLogger(midformat="Fitter")
         assert isinstance(local, bool), "local must be boolean"
         #Saves RA and DEC if provided and if valid
         if(ra!=None and dec!=None):
@@ -69,8 +54,7 @@ class fitter:
         if(local==True): 
             #Retrieve files
             self.dir_im=direct_image
-            self.seg_map=segmap
-            self.sn_im=sn_image
+            self.seg_map=segmap   
             #Check direct image
             try:
                 dir_im_temp=fits.open(self.dir_im)
@@ -83,11 +67,6 @@ class fitter:
             except:
                 self.log.error("Segmentation map is invalid")
                 return
-            try:
-                sn_im_temp=fits.open(self.sn_im)
-            except:
-                self.log.error("Supernova image is invalid")
-                return
             #Retrieve data from direct image
             self.dir_im_data=dir_im_temp[1].data
             self.dir_im_hdr=dir_im_temp[1].header
@@ -97,75 +76,44 @@ class fitter:
                 return
             dir_im_temp.close()
             #Retrieve data from the segmentation map
-            self.seg_map_hdr=seg_map_temp[1].header
-            self.seg_map_data=seg_map_temp[1].data
-            self.seg_map_data_orig=seg_map_temp[1].data
+            self.seg_map_hdr=seg_map_temp[0].header
+            self.seg_map_data=seg_map_temp[0].data
+            self.seg_map_data_orig=seg_map_temp[0].data
             seg_map_temp.close()
             self.ref_wcs=WCS(self.seg_map_hdr)
-            #Retrieve data from the supernova image
-            self.sn_data=sn_im_temp[1].data
-            self.sn_wcs=WCS(sn_im_temp[1].header)
-            self.sn_size=(sn_im_temp[1].header["NAXIS1"], self.sn_im[1].header["NAXIS2"])
-            self.sn_sca=sn_im_temp[1].header["SCA_NUM"]
-            sn_im_temp.close()
         else:
             #Check direct image
-            assert isinstance(direct_image, str), "direct_image must be the UUID of the direct image as a string"
-            self.dir_im=Image.get_image(direct_image)
+            assert isinstance(direct_image, str) or isinstance(direct_image, pathlib.Path), "direct_image must be either a filepath to the direct image or the UUID of the direct image"
+            self.dir_im=Images.find_images(filepath=direct_image)
+            if(self.dir_im==None):
+                assert isinstance(direct_image, str), str(direct_image)+" is not a valid UUID. UUID must be a string"
+                self.dir_im=Image.get_image(direct_image)
             if(self.dir_im==None):
                 self.log.error("direct_image is not a valid image or is not present in the database")
                 return
-            self.dir_im_data=self.dir_im.data
-            self.dir_im_band=self.dir_im.band
+            self.dir_im_data=dir_im.data
+            self.dir_im_band=dir_im.band
             #Retrieve corresponding segmentation map
-            if(segmap!=None):
-                try:
-                    seg_map_temp=fits.open(segmap)
-                except:
-                    self.log.error("Segmentation map is invalid")
-                    return
-                #Retrieve data from the segmentation map
-                self.seg_map_hdr=seg_map_temp[0].header
-                self.seg_map_data=seg_map_temp[0].data
-                self.seg_map_data_orig=seg_map_temp[0].data
-                seg_map_temp.close()
-                self.ref_wcs=WCS(self.seg_map_hdr)
-            else:
-                self.seg_map=SegmentationMap.find_segmaps(provenance_tag="ou2024", process="load_ou2024_segmap", l2image_id=self.dir_im.id)[0]
-                if len(self.seg_map)==0:
-                    self.log.error("There is no segmentation map corresponding to this direct image. Please pick another direct image or create a segmentation map.")
-                    return
-                #Retrieve data from the segmentation map
-                self.seg_map_data=self.seg_map.image.data
-                self.seg_map_data_orig=self.seg_map.image.data
-                self.ref_wcs=self.dir_im.get_wcs().get_astropy_wcs()
-            #Check SN image
-            assert isinstance(sn_image, str), "sn_image must be the UUID of the direct image as a string"
-            self.sn_im=Image.get_image(sn_image)
-            if(self.sn_im==None):
-                self.log.error("sn_image is not a valid image or is not present in the database")
-                return
-            if(self.sn_im.band in ["grism", "GRISM", "grism0", "GRISM0", "grism1", "GRISM1"]):
-                self.log.error("Grism not currently supported")
-                return
-            self.sn_data=self.sn_im.data
-            self.sn_wcs=self.sn_im.get_wcs().get_astropy_wcs()
-            self.sn_size=self.sn_im.image_shape
-            self.sn_sca=self.sn_im.sca
+            self.seg_map=SegmentationMap.find_segmaps(l2image_id=self.dir_im.id)
+            #self.seg_map=SegmentationMap.find_segmaps(provenance_tag=?, process=?, l2image_id=self.dir_im.id)
+            #Retrieve data from the segmentation map
+            self.seg_map_data=self.seg_map.data
+            self.seg_map_data_orig=self.seg_map.data
+            self.ref_wcs=self.dir_im.get_wcs().get_astropy_wcs()
         #Get number of pixels and their coordinates
         self.pixPos=np.array(np.transpose((np.where(self.seg_map_data!=0))))
         self.numPix=self.pixPos.shape[0]
+        #Define a simulator object for the desired output
+        self.simulator=WFSSImageSimulator_nohdr(self.dir_im_data, self.seg_map_data, self.ref_wcs, self.dir_im_band)
         return
 
     def pick_object(self, ID):
         """Function to allow the user to select which object to fit
-        Parameters
-        ----------
-        ID: int 
-            The number in the original segmentation map that corresponds to the desired object
-        Returns
-        -------
-            None; rewrites variables used later"""
+        Parameters:
+            id (int) - the number in the original segmentation map that corresponds to the desired object
+        Returns:
+            None; rewrites variables used later and recreates the simulator"""
+        assert isinstance(ID, int)
         #Find where the object with the given id is located, using the preserved copy of the segmentation map
         new_coord=np.where(self.seg_map_data_orig==ID)
         #Ensures at least one pixel matches the ID
@@ -173,7 +121,7 @@ class fitter:
             self.log.error("ID not present in segmentation map")
             return
         #Generate a grid of zeros
-        new_map=np.zeros(self.seg_map_data.shape)
+        new_map=np.zeros((self.seg_map.height, self.seg_map.width))
         #Assign 1 to the desired coordinates
         new_map[new_coord]=1
         #Redefine the seg_map_data variable, preserving the original map in case another object is used later
@@ -181,44 +129,23 @@ class fitter:
         #Get number of pixels and their coordinates
         self.pixPos=np.array(np.transpose((np.where(self.seg_map_data!=0))))
         self.numPix=self.pixPos.shape[0]
+        #Recreate the simulator with the new segmentation map
+        self.simulator=WFSSImageSimulator_nohdr(self.dir_im_data, self.seg_map_data, self.ref_wcs, self.dir_im.band)
         return
 
     def get_ID_xy(self, x, y):
-        """Retrieves the ID of an object given the x and y coordinates
-        Parameters
-        ----------
-        x: int
-            x coordinate of the object of interest
-        y: int 
-            y coordinate of the object of interest
-        Returns
-        -------
-        ID: int
-            The number of the segmentation map at the location given"""
+        """Retrieves the ID of an object given the x and y coordinates"""
         assert isinstance(x, int), "x must be an integer"
         assert isinstance(y, int), "y must be an integer"
         try:
             loc=self.seg_map_data_orig[y, x]
-            if(loc==0):
-                self.log.error("There is no object present at the given coordinates")
-                return
             return loc
         except:
             self.log.error("x/y coordinate not present in the segmentation map")
             return
 
     def get_ID_ad(self, ra, dec):
-        """Retrieves the ID of an object given the RA and DEC
-        Parameters
-        ----------
-        ra: float
-            Right ascension of the object of interest
-        dec: float
-            Declination of the object of interest
-        Returns
-        -------
-        ID: int
-            The number of the segmentation map at the location given"""
+        """Retrieves the ID of an object given the RA and DEC"""
         assert isinstance(ra, float), "ra must be a float"
         assert isinstance(dec, float), "dec must be a float"
         coord=SkyCoord(str(ra)+" "+str(dec), unit=(u.deg, u.deg))
@@ -227,9 +154,6 @@ class fitter:
         y=round(float(y_temp))
         try:
             loc=self.seg_map_data_orig[y, x]
-            if(loc==0):
-                self.log.error("There is no object present at the given coordinates")
-                return
             return loc
         except:
             self.log.error("RA/DEC coordinate not present in the segmentation map")
@@ -237,17 +161,10 @@ class fitter:
 
     def make_map(self, ra=None, dec=None, overwrite=False):
         """High-level function to use the given coordinates to prepare the segmentation map for fitting
-        Parameters
-        ----------
-        ra: float
-            Right ascension of the object if not given at initialization
-        dec: float
-            Declination of the object if not given at initialization
-        overwrite: bool
-            If True, overwrites any RA/DEC provided earlier 
-        Returns
-        -------
-        None; rewrites variables used later"""
+        Parameters:
+            ra, dec (float) - right ascension and declination of the object if not given at initialization
+        Returns:
+            None; rewrites variables used later and recreates the simulator"""
         if(ra==None and dec==None):
             if(self.ra==None or self.dec==None):
                 self.log.error("RA and DEC must both be provided")
@@ -268,33 +185,60 @@ class fitter:
                     self.ra=ra
                     self.dec=dec
 
-    def fit(self, theta, config_file, spec_data=None, phot_data=None):
+
+    def fit(self, theta, config_file, spec_data, phot_data):
         """This function fits a simulated spectrum to provided data.
-        Parameters
-        ----------
-        theta: array 
-            Initial guess. Must be size appropriate to match other inputs
-        config_file: string
-            The file containing the configuration parameters. Contains a larger number of input parameters. See LINK for complete documentation. 
-        spec_data: string or list, optional
-            If local: if string: path to spectroscopic data in the form of standard Roman fits files. Must end with "/". If list: list of complete paths to files for analysis. For both: Header must include WCS and exposure time. If non-local: list of UUIDs or filepaths for specific images to be included in fit. If set to None when running non-locally, data will be pulled automatically. To exclude this type of data, input this as an empty list ([])
-            phot_data: string or list, optional
-                If string: path to photometric data in the form of standard Roman fits files. Must end with "/". If list: list of complete paths to files for analysis. For both: Header must include WCS, exposure time, and filter name. If non-local: list of UUIDs or filepaths for specific images to be included in fit. If set to None when running non-locally, data will be pulled automatically. To exclude this type of data, input this as an empty list ([])
-        
-        Returns
-        -------
-        best fit: hdul
-            Map of the properties of the best fit
-        best fit image: 2d array
-            Simulated image using the best fit properties
-        subtracted image: 2d array
-            Image containing the supernova with the simulated best fit image subtracted off
-        Note: each of these parameters can be returned and/or saved
+        Parameters:
+            spec_data (string or list) - if string: path to spectroscopic data in the form of standard Roman fits files. Must end with "/". If list: list of complete paths to files for analysis. For both: Header must include WCS and exposure time
+            phot_data (string or list) - if string: path to photometric data in the form of standard Roman fits files. Must end with "/". If list: list of complete paths to files for analysis. For both: Header must include WCS, exposure time, and filter name
+            theta (array) - initial guess. Must be size appropriate to match other inputs
+            config_file (string) - The file containing the configuration parameters. Contains the following:
+                z (float) - redshift, NOT metallicity. REQUIRED
+                working_dir (string) - directory where all files created by this function will be saved
+                filter_path (string) - path to the location of the Roman filter functions. Only required if photometry is true
+                method (string) - scipy optimization method to use. Default is scipy least_squares with trf method. Accepts any method used by scipy minimize or scipy least_squares except custom methods
+                use_bayes (bool) - choice to use Bayesian analysis to get a more detailed picture. Better fit with stronger uncertainty at cost of more time
+                niter (int) - number of iterations to run. Only used in Bayesian analysis. Default is 10^5
+                nwalkers (int) - number of walkers to use. Only used in Bayesian analysis. Default is 8
+                sim_code (string) - choice of simulation to code. Must be BC03 or FSPS
+                one_sed (bool) - if True, all pixels in the galaxy will be set to the same SED. If False, each pixel has an individual SED
+                sps_home (string) - path to SPS files. Required if using FSPS, unless SPS_HOME is set elsewhere
+                verbose (bool) - if True, program will provide updates on its current process and times for the lengthier process
+                buffer (int) - buffer around the segmentation map to test for pixel overlaps. Default is 1. It is unlikely this parameter will need to be adjusted
+                bc03_params - fixed parameters that will not be iterated over if using BC03. No defaults set
+                    Includes: working directory, ised directory, library name, metallicity, IMF choice, dust parameters, SFH choice, gas recycling choice if SFH is 1 or -1, and file names if SFH is 6. See bc03utils and make_csp_file documentation for more details
+                fsps_params - Fixed parameters that will not be iterated over for FSPS
+                    Note: FSPS contains a vast number of parameters, many of which can be iterated over. fsps_params contains those that cannot be iterated over. See pyFSPS documetation (https://dfm.io/python-fsps/current/stellarpop_api/#fsps.StellarPopulation) for more details on available parameters. If any parameter here is not specified, the default value is used
+                fsps_optional - Optional fixed parameters for FSPS
+                    Note: Any FSPS parameters defined here will not be fit for. Use string "default" to set to the default but not fit. See FSPS documentation (https://dfm.io/python-fsps/current/stellarpop_api/#fsps.StellarPopulation) for more details on available parameters
+                bounds - bounds of the fit. First option is a boolean to choose if using bounds or not. If not provided or use_bounds is False, bounds age to the age of the universe to prevent runtime errors
+                output - various choices of what outputs are desired. Note that a reference image must be provided if any of the subtracted options are set to True
+            Return options:
+            Best fit parameters from the frequentist optimization
+            Chi^2 test statistic from frequentist optimization
+            Best fit image, either as direct array or saved as fits file
+            Subtracted image, either as direct array or saved as fits file
+            If use_bayes is true, the sample chain
+            If use_bayes is true, the median for each parameter, serving as the best fit for the Bayesian method
+        Notes:
+            If use_bayes is true, the returned image is created using the median value of the parameters from the chain
+            Reccomended methods are trf, lm, and Nelder-Mead. Current default method is trf
+            Reference times are provided in the comments as well as in other documentation. If the program exceeds these significantly, there may be something wrong
+            BC03 and FSPS behave slightly differently. Due to the smaller number of parameters in BC03, all relevant paramters will be fit automatically. Due to the high number in FSPS, fit parameters must be selected
+            BC03:
+                For SFH 1 or SFH -1, ensure epsilon is provided if recycling is true
+                Cannot iterate over file names if using SFH 6 (see bc03utils documentation)
+                SFH 7 is not currently supported
+                Command line output for BC03 will be redirected into a log file in the working directory called "bc03_logfile.txt". In the unlikely event that the simulation fails, check this file for further information
+            FSPS:
+                SFH 2 and 3 not currently supported. SFH 2 is not supported by pyFSPS so is unlikely to become supported
+                Any parameters that will not be used by the IMF, SFH, dust, and other selections will not be fit for. Please ensure the fixed parameters are compatible with the desired fittable parameters
+        Written by Ann Isaacs (isaac413@umn.edu). Please contact me with any issues/bugs/suggestions
         """
         # Get config file
         config=Config.get(config_file, reread=True, prefix="spectroscopy.sloeginphys")
         #Check that universal parameters are valid
-        verbose=config.value("run.verbose")
+        verbose=config.value(prefix+"run.verbose")
         if(verbose!=None):
             assert isinstance(verbose, bool), "verbose must be boolean"
         else:
@@ -304,34 +248,34 @@ class fitter:
             self.log.info("Beginning fit")
             self.log.info("Checking input parameters")
         # Extract parameters to make my life easier
-        z=config.value("temp.z")
-        working_dir=config.value("paths.working_dir")
-        local=config.value("run.local")
-        filter_path=config.value("paths.filter_path")
-        provenance_tag=config.value("temp.provenance_tag")
-        spec_process=config.value("temp.spec_process")
-        phot_process=config.value("temp.phot_process")
+        z=config.value(prefix+"temp.z")
+        sn_im=config.value(prefix+"temp.SN_image")
+        working_dir=config.value(prefix+"paths.working_dir")
+        local=config.value(prefix+"run.local")
+        filter_path=config.value(prefix+"paths.filter_path")
+        provenance_tag=config.value(prefix+"temp.provenance_tag")
+        spec_process=config.value(prefix+"temp.spec_process")
+        phot_process=config.value(prefix+"temp.phot_process")
         mjd_min_offset=config.value("params.mjd_min_offset")
         mjd_max_offset=config.value("params.mjd_max_offset")
-        mjd_disco=config.value("temp.mjd_disco")
+        mjd_disco=config.value(prefix+"temp.mjd_disco")
         sim_code=config.value("params.sim_code")
         one_sed=config.value("params.one_sed")
         method=config.value("params.method")
         use_bayes=config.value("params.use_bayes")
-        niter=config.value("params.niter")
+        niter=config.value("params.params.niter")
         nwalkers=config.value("params.nwalkers")
         buffer=config.value("params.buffer")
         h0=config.value("params.H0")
         omegaM=config.value("params.OmegaM")
-        return_fit=config.value("output.return_fit")
-        save_fit=config.value("output.save_fit")
-        fit_name=config.value("output.fit_name")
-        return_image=config.value("output.return_image")
-        save_image=config.value("output.save_image")
-        image_name=config.value("output.image_name")
-        return_subtracted=config.value("output.return_subtracted")
-        save_subtracted=config.value("output.save_subtracted")
-        subtracted_name=config.value("output.subtracted_name")
+        return_fit=config.value(prefix+"output.return_fit")
+        save_fit=config.value(prefix+"output.save_fit")
+        return_image=config.value(prefix+"output.return_image")
+        save_image=config.value(prefix+"output.save_image")
+        image_name=config.value(prefix+"output.image_name")
+        return_subtracted=config.value(prefix+"output.return_subtracted")
+        save_subtracted=config.value(prefix+"output.save_subtracted")
+        subtracted_name=config.value(prefix+"output.subtracted_name")
         if(z==None):
             self.log.error("Redshift must be provided")
             return
@@ -342,6 +286,32 @@ class fitter:
             assert isinstance(local, bool), "local must be a boolean"
         else:
             local=False
+        if(sn_im==None):
+            self.log.error("A 2-D spectrum containing the supernova must be provided")
+        else:
+            if(local==True):
+                assert isinstance(sn_im, str), "SN_image must be a string"
+                try:
+                    test_im=fits.open(sn_im)
+                    self.sn_data=test_im[1].data
+                    self.sn_wcs=WCS(test_im[1].header)
+                except:
+                    self.log.error(str(sn_im)+" is not a valid fits file")
+                    return
+            else:
+                assert isinstance(sn_im, str) or isinstance(ref_image, pathlib.Path), "SN_image must be a string and a valid UUID"
+                test_im=Images.find_images(filepath=sn_im)
+                #If the path doesn't work, try the list element as a UUID
+                if(test_im==None):
+                    assert isinstance(sn_im, str), str(sn_im)+" is not a valid UUID"
+                    test_im=Images.get_image(sn_im)
+                if(test_im==None):
+                    self.log.error(str(sn_im)+" does not correspond to a valid image")
+                    return
+                else:
+                    self.sn_data=self.test_im.data
+                    self.sn_size=self.test_im.size
+                    self.sn_wcs=self.test_im.get_wcs().get_astropy_wcs()
         if(working_dir==None):
             self.log.error("A working directory must be provided")
             return
@@ -360,14 +330,9 @@ class fitter:
             assert isinstance(phot_process, str), "phot_process must be a string"
             #Note: later add something to ensure process is valid
         if(mjd_min_offset!=None):
-            assert isinstance(mjd_min_offset, float) or isinstance(mjd_min_offset, int), "mjd_min_offset must be a float or int"
-        else:
-            mjd_min_offset=90
+            assert isinstance(mjd_min_offset, float) or isinstance(mjd_min_offset, int), "min_mjd must be a float or int"
         if(mjd_max_offset!=None):
-            assert isinstance(mjd_max_offset, float) or isinstance(mjd_max_offset, int), "mjd_max_offset must be a float or int"
-        else:
-            mjd_max_offset=30
-        assert mjd_min_offset>mjd_max_offset, "Minimum offset must be greater than maximum offset"
+            assert isinstance(mjd_max_offset, float) or isinstance(mjd_max_offset, int), "mjd_max must be a float or int"
         if(sim_code==None):
             self.log.error("Simulation code choice must be provided")
             return
@@ -433,8 +398,6 @@ class fitter:
             assert isinstance(save_subtracted, bool), "save_subtracted must be boolean"
         else:
             save_subtracted=False
-        if(fit_name!=None):
-            assert isinstance(fit_name, str), "fit_name must be a string"
         if(image_name!=None):
             assert isinstance(image_name, str), "image_name must be a string"
         if(subtracted_name!=None):
@@ -446,9 +409,6 @@ class fitter:
             elif method not in ["trf", "dogbox", "lm", "Nelder-Mead", "Powell", "CG", "BFGS", "L-BFGS-B", "TNC", "COBYLA", "COBYQA", "SLSQP", "trust-constr"]:
                 self.log.error("Invalid method")
                 return
-        if np.max(self.seg_map_data)>1:
-            self.log.error("More than one object is included in the segmentation map. Please select an object using make_map or pick_object")
-            return
         #Check that input parameters for the specific sim_code choice are valid and set up a parameter dictionary for use in fitting
         if sim_code == "BC03":
             # Retrieve fixed parameters and check that all needed parameters have been provided
@@ -614,12 +574,12 @@ class fitter:
                 return
         elif sim_code == "FSPS":
             # Sets SPS to the provided path. This can also be set above in the imports section
-            if (config.value("paths.sps_home")) != None:
-                assert isinstance(config.value("paths.sps_home"), str), "sps_home must be a string"
-                if not os.path.isdir(config.value("paths.sps_home")):
-                    self.log.error(config.value("paths.sps_home")+" does not exist")
+            if (config.value("params.sps_home")) != None:
+                assert isinstance(config.value("params.sps_home"), str), "sps_home must be a string"
+                if not os.path.isdir(config.value("params.sps_home")):
+                    self.log.error(config.value("params.sps_home")+" does not exist")
                     return
-                os.environ["SPS_HOME"] = config.value("paths.sps_home")
+                os.environ["SPS_HOME"] = config.value(prefix+"paths.sps_home")
             #Check parameters that must be selected at initialization
             if config.value("params.fsps_params.zcontinuous") != None:
                 assert config.value("params.fsps_params.zcontinuous") in [0, 1, 2, 3], ("zcontinuous must be an integer and must be 0, 1, 2, or 3")
@@ -649,7 +609,7 @@ class fitter:
             if config.value("params.fsps_params.wgp3") != None:
                 assert config.value("params.fsps_params.wgp3") in [0, 1], ("wgp3 must be an integer and must be 0 or 1")
                 sp.params["wgp3"] = config.value("params.fsps_params.wgp3")
-            if config.value("params.fsps_params.zmet") != None:
+            if config.value("params.fsps_params.zmet") != 0:
                 assert isinstance(config.value("params.fsps_params.zmet"), int), ("zmet must be an integer")
                 sp.params["zmet"] = config.value("params.fsps_optional.zmet")
             if config.value("params.fsps_params.use_wr_spectra") != None:
@@ -1015,22 +975,22 @@ class fitter:
             self.log.error("Invalid simulation code choice. Please select either BC03 (GALAXEV) or FSPS")
             return
         #Check that any bounds provided are valid if bounds are used
-        use_bounds=config.value("params.bounds.use_bounds")
+        use_bounds=config.value("bounds.use_bounds")
         if(use_bounds!=None):
             assert isinstance(use_bounds, bool), "use_bounds must be boolean"
         else:
             use_bounds=False
         if(use_bounds==True):
             for j in param_dict.keys():
-                if(config.value("params.bounds."+param_dict[j])!=None):
-                    assert isinstance(config.value("params.bounds."+param_dict[j]), list), "Bounds on "+param_dict[j]+" must be a list"
-                    btest=config.value("params.bounds."+param_dict[j])
+                if(config.value("bounds."+param_dict[j])!=None):
+                    assert isinstance(config.value("bounds."+param_dict[j]), list), "Bounds on "+param_dict[j]+" must be a list"
+                    btest=config.value("bounds."+param_dict[j])
                     if(len(btest)!=2):
                         self.log.error("Bound on "+param_dict[j]+" must contain exactly two elements of the form [lower bound, upper bound]")
                         return
-                    assert isinstance(config.value("params.bounds."+param_dict[j])[0], float) or isinstance(config.value("params.bounds."+param_dict[j])[0], int), "Lower bound on "+param_dict[j]+" must be a float or int"
-                    assert isinstance(config.value("params.bounds."+param_dict[j])[1], float) or isinstance(config.value("params.bounds."+param_dict[j])[1], int), "Upper bound on "+param_dict[j]+" must be a float or int"
-                    assert config.value("params.bounds."+param_dict[j])[0]<config.value("params.bounds."+param_dict[j])[1], "Lower bound on "+param_dict[j]+" must be less than upper bound"
+                    assert isinstance(config.value("bounds."+param_dict[j])[0], float) or isinstance(config.value("bounds."+param_dict[j])[0], int), "Lower bound on "+param_dict[j]+" must be a float or int"
+                    assert isinstance(config.value("bounds."+param_dict[j])[1], float) or isinstance(config.value("bounds."+param_dict[j])[1], int), "Upper bound on "+param_dict[j]+" must be a float or int"
+                    assert config.value("bounds."+param_dict[j])[0]<config.value("bounds."+param_dict[j])[1], "Lower bound on "+param_dict[j]+" must be less than upper bound"
         #Length of parameter vector for each individual pixel
         plength=len(param_dict)
         #Check theta length
@@ -1048,7 +1008,6 @@ class fitter:
         # Should take very little time per image, but may depend on where you pull the files from
         if(verbose==True):
             self.log.info("Retrieving image and bandpass files")
-            start=time.time()
         #Get the list of images
         if(local==True):
             #Get the list of images
@@ -1074,16 +1033,49 @@ class fitter:
             if(len(specs)==0 and len(phots)==0):
                 self.log.error("Please provide a path to photometric and/or spectroscopic data or a list of files")
                 return
+            #Open the fits files and put the data into lists
+            # Any fits files that do not open properly will be assumed to be invalid and will be skipped, but will NOT stop the program (unless it is the only file)
+            spec_data_list=[]
+            spec_err_list=[]
+            if(len(specs)>0):
+                for i in range(0, len(specs)):
+                    try:
+                        temp=fits.open(specs[i])
+                        spec_data_list.append(temp[1].data)
+                        spec_err_list.append(temp[2].data)
+                        temp.close()
+                    except:
+                        self.log.error("Fits file "+str(specs[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
+            phot_data_list=[]
+            phot_hdr_list=[]
+            phot_err_list=[]
+            if(len(phots)>0):
+                for i in range(0, len(phots)):
+                    try:
+                        temp=fits.open(phots[i])
+                        phot_data_list.append(temp[1].data)
+                        phot_hdr_list.append(temp[1].header)
+                        filt=temp[1].header["FILTER"]
+                        phot_err_list.append(temp[2].data)
+                        temp.close()
+                        if (filt not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
+                            self.log.error("Filter "+str(filt)+" in file "+str(phots[i])+" is not valid. Valid filters are R062, Z087, Y106, J129, W146, H158, F184, and K213")
+                            return
+                    except:
+                        self.log.error("Fits file "+str(phots[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
+            if(len(phot_data_list)==0 and len(spec_data_list)==0):
+                self.log.error("No valid files entered. Please enter at least one valid fits file")
+                return
         else:
             #If no spectrum data provided, automatically pull all images containing the RA and DEC that fit the parameters specificied in the configuration file
             if(spec_data==None):
                 if(self.ra!=None and self.dec!=None):
-                    if (mjd_min_offset==None or mjd_max_offset==None):
+                    if (min_mjd_offset==None or max_mjd_offset==None):
                         self.log.error("For automatic data retrieval, please provide a date range")
                         return
                     mjd_min=mjd_disco-mjd_min_offset
                     mjd_max=mjd_disco-mjd_max_offset
-                    specs=Image.find_images(provenance_tag=provenance_tag, process=spec_process, ra=self.ra, dec=self.dec, mjd_min=mjd_min, mjd_max=mjd_max)
+                    specs=Images.find_images(provenance_tag=provenance_tag, process=spec_process, ra=self.ra, dec=self.dec, mjd_min=mjd_min, mjd_max=mjd_max)
                 else:
                     self.log.error("RA and DEC must be provided to automatically retrieve images")
                     return
@@ -1094,26 +1086,26 @@ class fitter:
                     #Checks that the elements are valid
                     assert isinstance(spec_data[i], str) or isinstance(spec_data[i], pathlib.Path), "Each element of spec_data must be a string or a path"
                     #First assumes the list element is a path
-                    test_im=Image.find_images(filepath=spec_data[i])
+                    test_im=Images.find_images(filepath=spec_data[i])
                     #If the path doesn't work, try the list element as a UUID
                     if(test_im==None):
                         assert isinstance(spec_data[i], str), str(spec_data[i])+" is not a valid UUID"
-                        test_im=Image.get_image(spec_data[i])
+                        test_im=Images.get_image(spec_data[i])
                     if(test_im==None):
                         self.log.error("List element "+str(spec_data[i])+" does not correspond to a valid image and will not be used in fitting")
                     else:
                         specs.append(test_im)
             else:
-                self.log.error("spec_data must be a list if provided. To exclude spectroscopic data, set spec_data=[]")
+                self.log.error("spec_data must be a list if provided")
             #If no photometry data provided, automatically pull all images containing the RA and DEC that fit the parameters specificied in the configuration file
             if(phot_data==None):
                 if(self.ra!=None and self.dec!=None):
-                    if (mjd_min_offset==None or mjd_max_offset==None):
+                    if (min_mjd_offset==None or max_mjd_offset==None):
                         self.log.error("For automatic data retrieval, please provide a date range")
                         return
                     mjd_min=mjd_disco-mjd_min_offset
                     mjd_max=mjd_disco-mjd_max_offset
-                    phots=Image.find_images(provenance_tag=provenance_tag, process=phot_process, ra=self.ra, dec=self.dec, mjd_min=mjd_min, mjd_max=mjd_max)
+                    phots=Images.find_images(provenance_tag=provenance_tag, process=phot_process, ra=self.ra, dec=self.dec, mjd_min=mjd_min, mjd_max=mjd_max)
                 else:
                     self.log.error("RA and DEC must be provided to automatically retrieve images")
                     return
@@ -1124,17 +1116,17 @@ class fitter:
                     #Checks that the elements are valid
                     assert isinstance(phot_data[i], str) or isinstance(phot_data[i], pathlib.Path), "Each element of phot_data must be a string or a path"
                     #First assumes the list element is a path
-                    test_im=Image.find_images(filepath=phot_data[i])
+                    test_im=Images.find_images(filepath=phot_data[i])
                     #If the path doesn't work, try the list element as a UUID
                     if(test_im==None):
                         assert isinstance(phot_data[i], str), str(phot_data[i])+" is not a valid UUID"
-                        test_im=Image.get_image(phot_data[i])
+                        test_im=Images.get_image(phot_data[i])
                     if(test_im==None):
                         self.log.error("List element "+str(phot_data[i])+" does not correspond to a valid image and will not be used in fitting")
                     else:
                         phots.append(test_im)
             else:
-                self.log.error("phot_data must be a list if provided. To exclude photometric data, set phot_data=[]")
+                self.log.error("phot_data must be a list if provided")
             #Check that at least some data is provided
             if(len(specs)==0 and len(phots)==0):
                 self.log.error("Please provide either spectroscopic or photometric data by inputting either RA/DEC coodrinates or a list of filepaths and/or UUIDs")
@@ -1145,8 +1137,6 @@ class fitter:
         spec_err_list=[]
         spec_size_list=[]
         spec_wcs_list=[]
-        spec_filt_list=[]
-        spec_sca_list=[]
         if(len(specs)>0): 
             if(local==True):
                 for i in range(0, len(specs)):
@@ -1157,24 +1147,19 @@ class fitter:
                         spec_err_list.append(temp[2].data)
                         spec_size_list.append([temp_hdr["NAXIS1"], temp_hdr["NAXIS2"]])
                         spec_wcs_list.append(WCS(temp_hdr))
-                        spec_filt_list.append(temp_hdr["FILTER"])
-                        spec_sca_list.append(temp_hdr["SCA_NUM"])
                         temp.close()
                     except:
-                        self.log.warning("Fits file "+str(specs[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
+                        self.log.error("Fits file "+str(specs[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
             else:
                 spec_data_list.append(specs[i].data)
                 spec_err_list.append(specs[i].noise)
                 spec_size_list.append(specs[i].image_shape)
                 spec_wcs_list.append(specs[i].get_wcs().get_astropy_wcs())
-                spec_filt_list.append(specs[i].band)
-                spec_sca_list.append(specs[i].sca)
         phot_data_list=[]
         phot_err_list=[]
         phot_filt_list=[]
         phot_size_list=[]
         phot_wcs_list=[]
-        phot_sca_list=[]
         if(len(phots)>0):
             for i in range(0, len(phots)):
                 if(local==True):
@@ -1182,29 +1167,23 @@ class fitter:
                         try:
                             temp=fits.open(phots[i])
                             temp_hdr=temp[1].header
-                            if (temp_hdr["FILTER"] not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
-                                self.log.warning("Filter "+str(filter)+" in file "+str(phots[i])+" is not valid. Valid filters are R062, Z087, Y106, J129, W146, H158, F184, and K213")
-                                self.log.warning("File "+phots[i]+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
-                            else:
-                                phot_data_list.append(temp[1].data)
-                                phot_err_list.append(temp[2].data)
-                                phot_filt_list.append(temp_hdr["FILTER"])
-                                phot_size_list.append([temp_hdr(["NAXIS1"]), temp_hdr["NAXIS2"]])
-                                phot_wcs_list.append(WCS(temp_hdr))
-                                phot_sca_list.append(temp_hdr["SCA_NUM"])
+                            phot_data_list.append(temp[1].data)
+                            phot_err_list.append(temp[2].data)
+                            phot_filt_list.append(temp_hdr["FILTER"])
+                            phot_size_list.append([temp_hdr(["NAXIS1"]), temp_hdr["NAXIS2"]])
+                            phot_wcs_list.append(WCS(temp_hdr))
                             temp.close()
+                            if (temp_hdr["FILTER"] not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
+                                self.log.error("Filter "+str(filter)+" in file "+str(phots[i])+" is not valid. Valid filters are R062, Z087, Y106, J129, W146, H158, F184, and K213")
+                                return
                         except:
-                            self.log.warning("Fits file "+str(phots[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
+                            self.log.error("Fits file "+str(phots[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
                 else:
                     phot_data_list.append(phots[i].data)
                     phot_err_list.append(phots[i].noise)
                     phot_filt_list.append(phots[i].band)
                     phot_size_list.append(phots[i].image_shape)
                     phot_wcs_list.append(phots[i].get_wcs().get_astropy_wcs())
-                    phot_sca_list.append(phots[i].sca)
-        if(len(phot_data_list)==0 and len(spec_data_list)==0):
-            self.log.error("No valid data provided. Please ensure the files exist if running locally. Please use snappl to check that a nonzero number of images fall within the MJD range if running with the Roman database")
-            return
         # Load in bandpasses if photometry is used
         # Note: requires all 8 filter functions to be provided.
         if len(phots)!=0:
@@ -1305,9 +1284,6 @@ class fitter:
         #Also generate simulator objects for spectroscopy, again so this only has to be done once
         #Should take on the order of seconds to minutes per image, depending on the number of pixels present in the segmentation map, a little longer for spectroscopic images to create the simulator
         if(verbose==True):
-            self.log.info("Time to retrieve and open image and bandpass files: "+str(datetime.timedelta(seconds=(time.time()-start))))
-            self.log.info("Number of images in use: "+str(len(phot_data_list)+len(spec_data_list)))
-            self.log.info("Number of pixels in the segmentation map: "+str(self.numPix))
             start=time.time()
             self.log.info("Calculating pixel overlaps")
         #Set the size of the pixel grid the other images will be superimposed on
@@ -1318,14 +1294,14 @@ class fitter:
         spec_pixel_list=[]
         spec_sim_list=[]
         for i in range(0, len(spec_data_list)):
-            p, s, m=overlap(self.ref_wcs, spec_wcs_list[i], spec_size_list[i][0], spec_size_list[i][1], self.pixPos, buffer, True, spec_data_list[i], spec_filt_list[i], spec_sca_list[i])
+            p, s=overlap(self.ref_wcs, spec_wcs_list[i], spec_size_list[i][0], spec_size_list[i][1], self.pixPos, buffer, True, spec_data_list[i])
             spec_pixel_list.append(p)
             spec_sim_list.append(s)
         phot_pixel_list=[]
         #Photometry does not require the full simulator, but we still need the segmentation map, so we save that on its own
         phot_map_list=[]
         for i in range(0, len(phot_data_list)):
-            p, s=overlap(self.ref_wcs, phot_wcs_list[i], phot_size_list[i][0], phot_size_list[i][1], self.pixPos, buffer, False, phot_data_list[i], phot_filt_list[i], phot_sca_list[i])
+            p, s=overlap(self.ref_wcs, spec_wcs_list[i], spec_size_list[i][0], spec_size_list[i][1], self.pixPos, buffer, False, spec_data_list[i])
             phot_map_list.append(s)
             phot_pixel_list.append(p)
         if(verbose==True):
@@ -1402,7 +1378,7 @@ class fitter:
                 make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, self.pixPos)
             #Sum likelihoods for the spectroscopy data
             sumlikely=0
-            for k in range(0, len(spec_data_list)):
+            for k in range(0, len(specs)):
                 #Get the data
                 data=spec_data_list[k]
                 error=spec_err_list[k]
@@ -1413,12 +1389,10 @@ class fitter:
                 translate_SED(test_pixPos, pix, one_sed, working_dir, z, cosmo)
                 #Multiply the spectra and add them to the simulator
                 for q in range(0, len(test_pixPos)):
-                    x=test_pixPos[q][1]
-                    y=test_pixPos[q][0]
                     test_sim.sourceColl[0].seds[q]=test_sim.sourceColl[0].seds[q].from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
                     test_sim.sourceColl[0].seds[q].redshift(z)
                 # Do the simulation
-                test = test_sim.project(0, "dummy")
+                test = test_sim.simulate(0, return_sim=True, save_fits=False, redo_objpix=True)
                 # Calculate log likelihood as the sum of normals
                 mask = np.where(test != 0)
                 test_seg=np.zeros((spec_size_list[k][1], spec_size_list[k][0]))
@@ -1431,7 +1405,7 @@ class fitter:
                     if(np.isfinite(sumlikely)!=True):
                         self.log.error("There is a likelihood value that is either infinite or NaN. If your fit fails, this is one likely cause. Check error file for unusually small errors")
             #Sum likelihoods for the photometry
-            for k in range(0, len(phot_data_list)):
+            for k in range(0, len(phots)):
                 data=phot_data_list[k]
                 error=phot_err_list[k]
                 filter=phot_filt_list[k]
@@ -1518,8 +1492,29 @@ class fitter:
             start=time.time()
             self.log.info("Simulating best-fit image")
         best_fit=minimum.x
+        #Put together a map of the properties
+        hdu0=fits.PrimaryHDU()
+        hdul=fits.HDUList([hdu0])
+        count=0
+        for k in param_dict.keys():
+            data=np.zeros((seg_map_hdr["NAXIS2"], seg_map_hdr["NAXIS1"]))
+            for l in range(0, len(self.pixPos)):
+                x=self.pixPos[l][1]
+                y=self.pixPos[l][0]
+                if(one_sed==True):
+                    data[y, x]=best_fit[count]
+                else:
+                    data[y, x]=best_fit[int((l*plength)+count)]
+            new_header=seg_map_hdr
+            new_header["PROPERTY"]=k
+            new_header["CHI2"]=chi2
+            new_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
+            new_header["COMMENT"]="Best fit properties for each pixel and chi^2 value of the fit"
+            hdu=fits.ImageHDU(data, new_header)
+            hdul.append(hdu)
+            count=count+1
         #Convert the underlying pixels to the SN image
-        sn_pixels, sn_sim, sn_map=overlap(self.ref_wcs, self.sn_wcs, self.sn_size[0], self.sn_size[1], self.pixPos, buffer, True, self.sn_data, "PRISM", self.sn_im.sca)
+        sn_pixels, sn_sim=overlap(self.ref_wcs, self.sn_wcs, self.sn_size[0], self.sn_size[1], pixPos, buffer, True, self.sn_data)
         #Simulate the spectra for the pixels using the best fit parameters
         if sim_code=="BC03":
                 #If these variables haven't been defined because they're not needed, use None as a placeholder
@@ -1536,20 +1531,20 @@ class fitter:
             make_SED_fsps(working_dir, one_sed, best_fit, param_dict, plength, sp, self.pixPos)
         #Add the spectra to the simulator object
         #Get the data
-        sn_pixPos=np.where((sn_map!=0))
-        translate_SED(sn_pixPos, sn_pixels, one_sed, working_dir, z, cosmo, verbose=True)
+        sn_pixPos=np.where((self.sn_data!=0))
+        translate_SED(sn_pixPos, sn_pixels, one_sed, working_dir, z, cosmo)
         #Multiply the spectra and add them to the simulator   
         for q in range(0, len(sn_pixPos)):
             if(one_sed==True):
-                sn_sim.sourceColl[0].seds[q]=sn_sim.sourceColl[0].seds[q].from_file(working_dir+"test.txt")
+                sn_sim.sourceColl[0].seds[q]=self.simulator.sourceColl[0].seds[q].from_file(working_dir+"test.txt")
                 sn_sim.sourceColl[0].seds[q].redshift(z)
             else:
                 x=self.pixPos[q][1]
                 y=self.pixPos[q][0]
-                sn_sim.sourceColl[0].seds[q]=sn_sim.sourceColl[0].seds[q].from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
+                sn_sim.sourceColl[0].seds[q]=self.simulator.sourceColl[0].seds[q].from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
                 sn_sim.sourceColl[0].seds[q].redshift(z)
         #Do the simulation
-        best_im=sn_sim.project(0, "dummy")
+        best_im=sn_sim.simulate(0, return_sim=True, save_fits=False, redo_objpix=True)
         if(verbose==True):
             self.log.info("Time to simulate image: "+str(datetime.timedelta(seconds=(time.time()-start))))
         #Define chi^2
@@ -1602,7 +1597,7 @@ class fitter:
                     test_sim.sourceColl[0].seds[q]=test_sim.sourceColl[0].seds[q].from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
                     test_sim.sourceColl[0].seds[q].redshift(z)
                 # Do the simulation
-                test = test_sim.project(0, "dummy")
+                test = test_sim.simulate(0, return_sim=True, save_fits=False, redo_objpix=True)
                 mask=np.where(test!=0)
                 #Calculate chi2
                 chi2=chi2+np.sum(((data[mask]-test[mask])/err[mask])**2)
@@ -1675,27 +1670,6 @@ class fitter:
         if(verbose==True):
             self.log.info("Calculating chi^2")
         chi=chi2()
-        #Put together a map of the properties
-        hdu0=fits.PrimaryHDU()
-        hdul=fits.HDUList([hdu0])
-        count=0
-        for k in param_dict.keys():
-            data=np.zeros(self.seg_map_data.shape)
-            for l in range(0, len(self.pixPos)):
-                x=self.pixPos[l][1]
-                y=self.pixPos[l][0]
-                if(one_sed==True):
-                    data[y, x]=best_fit[count]
-                else:
-                    data[y, x]=best_fit[int((l*plength)+count)]
-            new_header=self.ref_wcs.to_header()
-            new_header["PROPERTY"]=k
-            new_header["CHI2"]=chi2
-            new_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
-            new_header["COMMENT"]="Best fit properties for each pixel and chi^2 value of the fit"
-            hdu=fits.ImageHDU(data)
-            hdul.append(hdu)
-            count=count+1
         #Organize the requested outputs
         if(use_bayes==False):
             return_list=[]
@@ -1705,10 +1679,7 @@ class fitter:
                 return_list.append(chi)
             if(save_fit==True):
                 if(local==True):
-                    if fit_name==None:
-                        hdul.writeto("best_fit_properties.fits", overwrite=True)
-                    else:
-                        hdul.writeto(fit_name+".fits", overwrite=True)
+                    hdul.writeto("best_fit_properties.fits", overwrite=True)
                 else:
                     #Temporary, until we have a file format for this
                     self.log.error("Saving the fit to the database not currently supported")
@@ -1812,7 +1783,7 @@ class fitter:
                     else:
                         make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, delete_in=True)
                 test_sim.sourceColl[0].seds[i] = (test_sim.sourceColl[0].seds[i].from_file(working_dir + spec_name + "_norm.sed"))
-            best_im = simulator.project(0, "dummy")
+            best_im = simulator.simulate(0, return_sim=True, save_fits=False)
             # Save fits and return relevant parameters
             if save_fits == True:
                 hdu = fits.PrimaryHDU(best_im, seg_map_hdr)
