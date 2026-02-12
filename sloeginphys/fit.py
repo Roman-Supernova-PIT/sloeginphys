@@ -1710,6 +1710,8 @@ class fitter:
                 #Multiply the spectra and add them to the simulator
                 translate_SED(test_pixPos, pix, one_sed, working_dir, z_best, cosmo, verbose=False, name="best_fit")
                 for q in range(0, len(test_pixPos)):
+                    x=test_pixPos[q][1]
+                    y=test_pixPos[q][0]
                     test_sim.sourceColl[0].seds[q]=test_sim.sourceColl[0].seds[q].from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
                     test_sim.sourceColl[0].seds[q].redshift(z_best)
                 # Do the simulation
