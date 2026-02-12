@@ -41,7 +41,7 @@ class fitter:
         sn_image: string 
             If non-local, UUID of the prism image containing the supernova. If local, path to the fits file where the prism image containing the supernova is
         local: bool, optional
-            Whether to run locally (pulling files from your own machine or local directories) or non-locally (pulling information from the Roman database). Default is False
+            Whether to run locally (pulling files from your own machine or local directories) or non-locally (pulling information from the Roman database). Default is False, meaning files will be pulled from the Roman database
         segmap: 2d array or string, optional 
             If local, this is required, and is the path to the segmentation map corresponding to the direct image. If non-local, this is NOT required and SHOULD be pulled automatically, but CAN be provided for testing or other unusual circumstances
         ra: float, optional
@@ -83,6 +83,7 @@ class fitter:
             except:
                 self.log.error("Segmentation map is invalid")
                 return
+            #Check SN image
             try:
                 sn_im_temp=fits.open(self.sn_im)
             except:
@@ -99,9 +100,10 @@ class fitter:
             #Retrieve data from the segmentation map
             self.seg_map_hdr=seg_map_temp[1].header
             self.seg_map_data=seg_map_temp[1].data
+            #Extra copy holds the original data so another RA/DEC can be used later
             self.seg_map_data_orig=seg_map_temp[1].data
             seg_map_temp.close()
-            self.ref_wcs=WCS(self.seg_map_hdr)
+            self.seg_wcs=WCS(self.seg_map_hdr)
             #Retrieve data from the supernova image
             self.sn_data=sn_im_temp[1].data
             self.sn_wcs=WCS(sn_im_temp[1].header)
@@ -129,7 +131,7 @@ class fitter:
                 self.seg_map_data=seg_map_temp[0].data
                 self.seg_map_data_orig=seg_map_temp[0].data
                 seg_map_temp.close()
-                self.ref_wcs=WCS(self.seg_map_hdr)
+                self.seg_wcs=WCS(self.seg_map_hdr)
             else:
                 self.seg_map=SegmentationMap.find_segmaps(provenance_tag="ou2024", process="load_ou2024_segmap", l2image_id=self.dir_im.id)[0]
                 if len(self.seg_map)==0:
@@ -138,7 +140,7 @@ class fitter:
                 #Retrieve data from the segmentation map
                 self.seg_map_data=self.seg_map.image.data
                 self.seg_map_data_orig=self.seg_map.image.data
-                self.ref_wcs=self.dir_im.get_wcs().get_astropy_wcs()
+                self.seg_wcs=self.dir_im.get_wcs().get_astropy_wcs()
             #Check SN image
             assert isinstance(sn_image, str), "sn_image must be the UUID of the direct image as a string"
             self.sn_im=Image.get_image(sn_image)
@@ -222,7 +224,7 @@ class fitter:
         assert isinstance(ra, float), "ra must be a float"
         assert isinstance(dec, float), "dec must be a float"
         coord=SkyCoord(str(ra)+" "+str(dec), unit=(u.deg, u.deg))
-        x_temp, y_temp=self.ref_wcs.world_to_pixel(coord)
+        x_temp, y_temp=self.seg_wcs.world_to_pixel(coord)
         x=round(float(x_temp))
         y=round(float(y_temp))
         try:
@@ -268,43 +270,29 @@ class fitter:
                     self.ra=ra
                     self.dec=dec
 
-    def fit(self, theta, config_file, spec_data=None, phot_data=None):
-        """This function fits a simulated spectrum to provided data.
+    def check_config(self, config_file):
+        """This function checks a configuration file to ensure all parameters are valid and provides information on the failing parameter
         Parameters
         ----------
-        theta: array 
-            Initial guess. Must be size appropriate to match other inputs
-        config_file: string
-            The file containing the configuration parameters. Contains a larger number of input parameters. See LINK for complete documentation. 
-        spec_data: string or list, optional
-            If local: if string: path to spectroscopic data in the form of standard Roman fits files. Must end with "/". If list: list of complete paths to files for analysis. For both: Header must include WCS and exposure time. If non-local: list of UUIDs or filepaths for specific images to be included in fit. If set to None when running non-locally, data will be pulled automatically. To exclude this type of data, input this as an empty list ([])
-            phot_data: string or list, optional
-                If string: path to photometric data in the form of standard Roman fits files. Must end with "/". If list: list of complete paths to files for analysis. For both: Header must include WCS, exposure time, and filter name. If non-local: list of UUIDs or filepaths for specific images to be included in fit. If set to None when running non-locally, data will be pulled automatically. To exclude this type of data, input this as an empty list ([])
-        
+        config: string
+            Path to the location of the configuration file to test
         Returns
         -------
-        best fit: hdul
-            Map of the properties of the best fit
-        best fit image: 2d array
-            Simulated image using the best fit properties
-        subtracted image: 2d array
-            Image containing the supernova with the simulated best fit image subtracted off
-        Note: each of these parameters can be returned and/or saved
+        None; fails with an error message if the configuration file is not valid
         """
-        # Get config file
+        #Check file type
+        temp=config_file.split(".")
+        extension=temp[-1]
+        assert extension=="yaml", "Configurtion file must be a yaml file"
+        #Get config file
         config=Config.get(config_file, reread=True, prefix="spectroscopy.sloeginphys")
-        #Check that universal parameters are valid
+        #Check universal parameters
         verbose=config.value("run.verbose")
         if(verbose!=None):
             assert isinstance(verbose, bool), "verbose must be boolean"
-        else:
-            verbose=False
-        if(verbose==True):
-            big_start=time.time()
-            self.log.info("Beginning fit")
-            self.log.info("Checking input parameters")
-        # Extract parameters to make my life easier
-        z=config.value("temp.z")
+        z=config.value("params.z")
+        fixed_z=config.value("params.fixed_z")
+        z_func=config.value("params.z_func")
         working_dir=config.value("paths.working_dir")
         local=config.value("run.local")
         filter_path=config.value("paths.filter_path")
@@ -332,24 +320,21 @@ class fitter:
         return_subtracted=config.value("output.return_subtracted")
         save_subtracted=config.value("output.save_subtracted")
         subtracted_name=config.value("output.subtracted_name")
-        if(z==None):
-            self.log.error("Redshift must be provided")
-            return
-        else:
+        assert isinstance(fixed_z, bool), "fixed_z must be a boolean"
+        assert fixed_z==True, "Flexible redshift fitting not yet supported"
+        if fixed_z==True:
+            assert z != None, "Redshift must be provided"
             assert isinstance(z, float) or isinstance(z, int), "z must be float or int"
             assert z>0, "z must be greater than zero"
+        else:
+            assert z_func!=None, "A PDF should be provided"
         if(local!=None):
             assert isinstance(local, bool), "local must be a boolean"
         else:
             local=False
-        if(working_dir==None):
-            self.log.error("A working directory must be provided")
-            return
-        else:
-            assert isinstance(working_dir, str), "working_dir must be a string"
-            if(not os.path.isdir(working_dir)):
-                self.log.error("working_dir is not an existing directory. Please create the directory and try again")
-                return
+        assert working_dir != None, "A working directory must be provided"
+        assert isinstance(working_dir, str), "working_dir must be a string"
+        assert os.path.isdir(working_dir), "working_dir is not an existing directory. Please create the directory and try again"
         if(provenance_tag!=None):
             assert isinstance(provenance_tag, str), "provenance_tag must be a string"
             #Note: later add something to ensure the provenance is valid
@@ -368,71 +353,41 @@ class fitter:
         else:
             mjd_max_offset=30
         assert mjd_min_offset>mjd_max_offset, "Minimum offset must be greater than maximum offset"
-        if(sim_code==None):
-            self.log.error("Simulation code choice must be provided")
-            return
-        else:
-            assert sim_code=="BC03" or sim_code=="FSPS", "sim_code must be a string, and must be either BC03 or FSPS"
-        if(one_sed==None):
-            one_sed=False
-        else:
+        assert sim_code!=None, "Simulation code choice must be provided"
+        assert sim_code=="BC03" or sim_code=="FSPS", "sim_code must be a string, and must be either BC03 or FSPS"
+        if(one_sed!=None):
             assert isinstance(one_sed, bool), "one_sed must be a boolean"
         if(method!=None):
             assert isinstance(method, str), "method must be a string"
-        if(use_bayes==None):
-            use_bayes=False
-        else:
+        if(use_bayes!=None):
             assert isinstance(use_bayes, bool), "use_bayes must be boolean. use_bayes=True not currently supported"
             if(use_bayes==True):
                 self.log.error("Bayesian statistics not currently supported")
                 use_bayes=False
         if(niter!=None):
             assert isinstance(niter, float) or isinstance(niter, int), "niter must be int or float"
-            niter=int(niter)
-        else:
-            niter=int(10**5)
         if(nwalkers!=None):
             assert isinstance(nwalkers, float) or isinstance(nwalkers, int), "nwalkers must be int or float"
-            nwalkers=int(nwalkers)
-        else:
-            nwalkers=8
         if(buffer==None):
             buffer=1
         else:
             assert isinstance(buffer, int), "buffer must be int"
-        if(h0==None):
-            h0=70
-        else:
+        if(h0!=None):
             assert isinstance(h0, float) or isinstance(h0, int), "H0 (Hubble constant) must be int or float"
-        if(omegaM==None):
-            omegaM=0.3
-        else:
+        if(omegaM!=None):
             assert isinstance(omegaM, float) or isinstance(omegaM, int), "OmegaM (Density of matter) must be int or float"
         if(return_fit!=None):
             assert isinstance(return_fit, bool), "return_fit must be boolean"
-        else:
-            return_fit=True
         if(save_fit!=None):
             assert isinstance(save_fit, bool), "save_fit must be boolean"
-        else:
-            #Temporary, until we have a file format
-            save_fit=False
         if(return_image!=None):
             assert isinstance(return_image, bool), "return_image must be boolean"
-        else:
-            return_image=True
         if(save_image!=None):
             assert isinstance(save_image, bool), "save_image must be boolean"
-        else:
-            save_image=False
         if(return_subtracted!=None):
             assert isinstance(return_subtracted, bool), "return_subtracted must be boolean"
-        else:
-            return_subtracted=True
         if(save_subtracted!=None):
             assert isinstance(save_subtracted, bool), "save_subtracted must be boolean"
-        else:
-            save_subtracted=False
         if(fit_name!=None):
             assert isinstance(fit_name, str), "fit_name must be a string"
         if(image_name!=None):
@@ -440,15 +395,8 @@ class fitter:
         if(subtracted_name!=None):
             assert isinstance(subtracted_name, str), "subtracted_name must be a string"
         if (method!=None):
-            if method in ["Newton-CG", "dogleg", "trust-ncg", "trust-exact", "trust-krylov"]:
-                self.log.error("Requires callable Jacobian. Not currently supported")
-                return
-            elif method not in ["trf", "dogbox", "lm", "Nelder-Mead", "Powell", "CG", "BFGS", "L-BFGS-B", "TNC", "COBYLA", "COBYQA", "SLSQP", "trust-constr"]:
-                self.log.error("Invalid method")
-                return
-        if np.max(self.seg_map_data)>1:
-            self.log.error("More than one object is included in the segmentation map. Please select an object using make_map or pick_object")
-            return
+            assert method not in ["Newton-CG", "dogleg", "trust-ncg", "trust-exact", "trust-krylov"], "Requires callable Jacobian. Not currently supported"
+            assert method in ["trf", "dogbox", "lm", "Nelder-Mead", "Powell", "CG", "BFGS", "L-BFGS-B", "TNC", "COBYLA", "COBYQA", "SLSQP", "trust-constr"], "Invalid method"
         #Check that input parameters for the specific sim_code choice are valid and set up a parameter dictionary for use in fitting
         if sim_code == "BC03":
             # Retrieve fixed parameters and check that all needed parameters have been provided
@@ -461,52 +409,357 @@ class fitter:
             recyc = config.value("params.bc03_params.recyc")
             file_names = config.value("params.bc03_params.file_names")
             # Check that universal parameters are present and valid
-            if (ised_dir == None or (not isinstance(ised_dir, str))):
-                self.log.error( "Please provide ised directory as a string")
-                return
-            if(not os.path.isdir(ised_dir)):
-                self.log.error("ised_dir is not an existing directory")
-                return
-            if (lib == None or metallicity == None or imf == None or (not isinstance(lib, str)) or (not isinstance(metallicity, str)) or (not isinstance(imf, str))):
-                self.log.error("Please provide library, metallicity, and IMF choice as strings")
-                return
-            if(not os.path.isfile(ised_dir+"bc2003_lr_"+lib+"_"+metallicity+"_"+imf+"_ssp.ised")):
-                self.log.error("bc2003_lr_"+lib+"_"+metallicity+"_"+imf+"_ssp.ised is not present in the ised directory")
-                return
-            if sfh == None or (not isinstance(sfh, int)):
-                self.log.error("Please provide SFH choice as an integer")
-                return
-            if dust == None or (not isinstance(dust, bool)):
-                self.log.error("Please provide dust as a boolean")
-                return
+            assert isinstance(ised_dir, str), "Please provide ised directory as a string"
+            assert os.path.isdir(ised_dir), "ised_dir is not an existing directory" 
+            assert isinstance(lib, str), "Please provide library as a string"
+            assert isinstance(imf, str), "Please provide IMF choice as a string"
+            assert isinstance(metallicity, str), "Please provide metallicity as a string"
+            assert os.path.isfile(ised_dir+"bc2003_lr_"+lib+"_"+metallicity+"_"+imf+"_ssp.ised"), "bc2003_lr_"+lib+"_"+metallicity+"_"+imf+"_ssp.ised is not present in the ised directory"
+            assert isinstance(sfh, int), "Please provide SFH choice as an integer"
+            if dust != None:
+                assert isinstance(dust, bool), "Please provide dust as a boolean"
             # Check that SFH is valid and supported
-            if sfh == 7:
-                self.log.error("SFH not supported")
-                return
-            elif sfh not in [0, 1, -1, 2, 3, 4, 5, 6, 7]:
-                self.log.error("Invalid SFH")
-                return
+            assert sfh in [0, 1, -1, 2, 3, 4, 5, 6], "SFH is invalid or not supported"
             # Check that parameter-dependent values are valid
             if sfh == 1 or sfh == -1:
-                if (recyc == None or not(isinstance(recyc, bool))):
-                    self.log.error("If SFH is 1 or -1, please provide gas recycling choice as a boolean")
-                    return
+                if recyc!=None:
+                    assert isinstance(recyc, bool), "If SFH is 1 or -1, please provide gas recycling choice as a boolean"
             if sfh == 6:
                 if(one_sed==False):
-                    if (file_names == None or not(isinstance(file_names, list))):
-                        self.log.error("If SFH is 6, please provide file names as a list of strings")
-                        return
+                    assert isinstance(file_names, list), "If SFH is 6, please provide file names as a list of strings"
                     for f in file_names:
-                        if(not os.path.isfile(f)):
-                            self.log.error("File "+f+" does not exist")
-                            return
+                        assert os.path.isfile(f), "File "+f+" does not exist"
                 else:
-                    if(file_names==None or not(isinstance(file_names, str))):
-                        self.log.error("If SFH is 6, please provide a file name as a string")
-                        return
-                    if(not os.path.isfile(file_names)):
-                        self.log.error("File "+f+" does not exist")
-                        return
+                    assert isinstance(file_names, str), "If SFH is 6, please provide a file name as a string"
+                    assert os.path.isfile(file_names), "File "+f+" does not exist"
+        elif sim_code == "FSPS":
+            # Sets SPS to the provided path. This can also be set above in the imports section
+            if (config.value("paths.sps_home")) != None:
+                assert isinstance(config.value("paths.sps_home"), str), "sps_home must be a string"
+                assert os.path.isdir(config.value("paths.sps_home")), config.value("paths.sps_home")+" does not exist"
+            #Check parameters that must be selected at initialization
+            if config.value("params.fsps_params.zcontinuous") != None:
+                assert config.value("params.fsps_params.zcontinuous") in [0, 1, 2, 3], ("zcontinuous must be an integer and must be 0, 1, 2, or 3")
+                zcont=config.value("params.fsps_params.zcontinuous")
+            else:
+                zcont=0
+            # Initialize stellar population object with the fixed parameters, checking to ensure the values are valid. Any parameters not specified in the configuration file will not be altered from the default
+            sp=fsps.StellarPopulation(compute_vega_mags=False, vactoair_flag=False, zcontinuous=zcont)
+            if config.value("params.fsps_params.imf_type") != None:
+                assert config.value("params.fsps_params.imf_type") in [0, 1, 2, 3, 4, 5], ("imf_type must be an integer and must be 0, 1, 2, 3, 4, or 5")
+                sp.params["imf_type"] = config.value("params.fsps_params.imf_type")
+            if config.value("params.fsps_params.sfh") != None:
+                assert config.value("params.fsps_params.sfh") in [0, 1, 4, 5], ("sfh must be an integer and must be 0, 1, 4, or 5. Options 2 and 3 are not currently supported")
+                sp.params["sfh"] = config.value("params.fsps_params.sfh")
+            if config.value("params.fsps_params.dust_type") != None:
+                assert config.value("params.fsps_params.dust_type") in [0, 1, 2, 3, 4, 5, 6], ("dust_type must be an integer and must be 0, 1, 2, 3, 4, 5, or 6")
+                sp.params["dust_type"] = config.value("params.fsps_params.dust_type")
+            if config.value("params.fsps_params.tpagb_norm_type") != None:
+                assert config.value("params.fsps_params.tpagb_norm_type") in [0, 1, 2], ("tpagb_norm_type must be an integer and must be 0, 1, or 2")
+                sp.params["tpagb_norm_type"] = config.value("params.fsps_params.tpagb_norm_type")
+            if config.value("params.fsps_params.wgp1") != None:
+                assert config.value("params.fsps_params.wgp1") in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18], "wgp1 must be an integer and must be 1-18"
+                sp.params["wgp1"] = config.value("params.fsps_params.wgp1")
+            if config.value("params.fsps_params.wgp2") != None:
+                assert config.value("params.fsps_params.wgp2") in [1, 2, 3, 4, 5, 6], ("wgp2 must be an integer and must be 1, 2, 3, 4, 5, or 6")
+                sp.params["wgp2"] = config.value("params.fsps_params.wgp2")
+            if config.value("params.fsps_params.wgp3") != None:
+                assert config.value("params.fsps_params.wgp3") in [0, 1], ("wgp3 must be an integer and must be 0 or 1")
+                sp.params["wgp3"] = config.value("params.fsps_params.wgp3")
+            if config.value("params.fsps_params.zmet") != None:
+                assert isinstance(config.value("params.fsps_params.zmet"), int), ("zmet must be an integer")
+                sp.params["zmet"] = config.value("params.fsps_optional.zmet")
+            if config.value("params.fsps_params.use_wr_spectra") != None:
+                assert config.value("params.fsps_params.use_wr_spectra") in [0, 1], ("use_wr_spectra must be an integer and must be 0 or 1")
+                sp.params["use_wr_spectra"] = config.value("params.fsps_params.use_wr_spectra")
+            if config.value("params.fsps_params.add_xrb_emission") != None:
+                assert config.value("params.fsps_params.add_xrb_emission") in [0, 1], ("add_xrb_emission must be an integer and must be 0 or 1")
+                sp.params["add_xrb_emission"] = config.value("params.fsps_params.add_xrb_emission")
+            if config.value("params.fsps_params.add_agb_dust_model") != None:
+                assert isinstance(config.value("params.fsps_params.add_agb_dust_model"), bool), ("add_agb_dust_model must be a boolean")
+                sp.params["add_agb_dust_model"] = config.value("params.fsps_params.add_agb_dust_model")
+            if config.value("params.fsps_params.add_dust_emission") != None:
+                assert isinstance(config.value("params.fsps_params.add_dust_emission"), bool), ("add_dust_emission must be a boolean")
+                sp.params["add_dust_emission"] = config.value("params.fsps_params.add_dust_emission")
+            if config.value("params.fsps_params.add_igm_absorption") != None:
+                assert isinstance(config.value("params.fsps_params.add_igm_absorption"), bool), ("add_igm_absorption must be a boolean")
+                sp.params["add_igm_absorption"] = config.value("params.fsps_params.add_igm_absorption")
+            if config.value("params.fsps_params.add_neb_emission") != None:
+                assert isinstance(config.value("params.fsps_params.add_neb_emission"), bool), ("add_neb_emission must be a boolean")
+                sp.params["add_neb_emission"] = config.value("params.fsps_params.add_neb_emission")
+            if config.value("params.fsps_params.add_neb_continuum") != None:
+                assert isinstance(config.value("params.fsps_params.add_neb_continuum"), bool), ("add_neb_continuum must be a boolean")
+                sp.params["add_neb_continuum"] = config.value("params.fsps_params.add_neb_continuum")
+            if config.value("params.fsps_params.add_stellar_remnants") != None:
+                assert isinstance(config.value("params.fsps_params.add_stellar_remnants"), bool), ("add_stellar_remnants must be a boolean")
+                sp.params["add_stellar_remnants"] = config.value("params.fsps_params.add_stellar_remnants")
+            if config.value("params.fsps_params.compute_light_ages") != None:
+                assert isinstance(config.value("params.fsps_params.compute_light_ages"), bool), ("compute_light_ages must be a boolean")
+                sp.params["compute_light_ages"] = config.value("params.fsps_params.compute_light_ages")
+            if config.value("params.fsps_params.nebemlineinspec") != None:
+                assert isinstance(config.value("params.fsps_params.nebemlineinspec"), bool), ("nebemlineinspec must be a boolean")
+                sp.params["nebemlineinspec"] = config.value("params.fsps_params.nebemlineinspec")
+            if config.value("params.fsps_params.smooth_velocity") != None:
+                assert isinstance(config.value("params.fsps_params.smooth_velocity"), bool), ("smooth_velocity must be a boolean")
+                sp.params["smooth_velocity"] = config.value("params.fsps_params.smooth_velocity")
+            if config.value("params.fsps_params.smooth_lsf") != None:
+                assert isinstance(config.value("params.fsps_params.smooth_lsf"), bool), ("smooth_lsf must be a boolean")
+                sp.params["smooth_lsf"] = config.value("params.fsps_params.smooth_lsf")
+            if config.value("params.fsps_params.cloudy_dust") != None:
+                assert isinstance(config.value("params.fsps_params.cloudy_dust"), bool), ("cloudy_dust must be a boolean")
+                sp.params["cloudy_dust"] = config.value("params.fsps_params.cloudy_dust")
+            if config.value("params.fsps_params.sigma_smooth") != None:
+                assert isinstance(config.value("params.fsps_params.sigma_smooth"), float), ("sigma_smooth must be a float")
+                sp.params["sigma_smooth"] = config.value("params.fsps_params.sigma_smooth")
+            if config.value("params.fsps_params.min_wave_smooth") != None:
+                assert isinstance(config.value("params.fsps_params.min_wave_smooth"), float), ("min_wave_smooth must be a float")
+                sp.params["min_wave_smooth"] = config.value("params.fsps_params.min_wave_smooth")
+            if config.value("params.fsps_params.max_wave_smooth") != None:
+                assert isinstance(config.value("params.fsps_params.max_wave_smooth"), float), ("max_wave_smooth must be a float")
+                sp.params["max_wave_smooth"] = config.value("params.fsps_params.max_wave_smooth")
+            # Age
+            if config.value("params.fsps_optional.tage") != None:
+                assert isinstance(config.value("params.fsps_optional.tage"), float), "tage must be a float"
+                assert config.value("params.fsps_optional.tage")>0, "tage must be greater than zero"
+            # Metallicity parameters
+            if config.value("params.fsps_params.zcontinuous") != 0:
+                if config.value("params.fsps_optional.logzsol") != "default" and config.value("params.fsps_optional.logzsol") != None:
+                    assert isinstance(config.value("params.fsps_optional.logzsol"), float), ("logzsol must be a float")
+                if config.value("params.fsps_params.zcontinuous") == 2:
+                    if config.value("params.fsps_optional.pmetals") != "default" and config.value("params.fsps_optional.pmetals") != None:
+                        assert isinstance(config.value("params.fsps_optional.pmetals"), float), ("pmetals must be a float")
+            if config.value("params.fsps_params.add_neb_emission") == True:
+                if config.value("params.fsps_optional.gas_logu") != "default" and config.value("params.fsps_optional.gas_logu") != None:
+                    assert isinstance(config.value("params.fsps_optional.gas_logu"), float), ("gas_logu must be a float")
+                if config.value("params.fsps_optional.gas_logz") != "default" and config.value("params.fsps_optional.gas_logz") != None:
+                    assert isinstance(config.value("params.fsps_optional.gas_logz"), float), ("gas_logz must be a float")
+            # IMF parameters
+            if config.value("params.fsps_params.imf_type") == 2:
+                if config.value("params.fsps_optional.imf1") != "default" and config.value("params.fsps_optional.imf1") != None:
+                    assert isinstance(config.value("params.fsps_optional.imf1"), float), ("imf1 must be a float")
+                if config.value("params.fsps_optional.imf2") != "default" and config.value("params.fsps_optional.imf2") != None:
+                    assert isinstance(config.value("params.fsps_optional.imf2"), float), ("imf2 must be a float")
+                if config.value("params.fsps_optional.imf3") != "default" and config.value("params.fsps_optional.imf3") != None:
+                    assert isinstance(config.value("params.fsps_optional.imf3"), float), ("imf3 must be a float")
+            elif config.value("params.fsps_params.imf_type") == 3:
+                if config.value("params.fsps_optional.vdmc") != "default" and config.value("params.fsps_optional.vdmc") != None:
+                    assert isinstance(config.value("params.fsps_optional.vdmc"), float), ("vdmc must be a float")
+            elif config.value("params.fsps_params.imf_type") == 4:
+                if config.value("params.fsps_optional.mdave") != "default" and config.value("params.fsps_optional.mdave") != None:
+                    assert isinstance(config.value("params.fsps_optional.mdave"), float), ("mdave must be a float")
+            if config.value("params.fsps_optional.imf_upper_limit") != "default" and config.value("params.fsps_optional.imf_upper_limit") != None:
+                assert isinstance(config.value("params.fsps_optional.imf_upper_limit"), float), ("imf_upper_limit must be a float")
+            if config.value("params.fsps_optional.imf_lower_limit") != "default" and config.value("params.fsps_optional.imf_lower_limit") != None:
+                assert isinstance(config.value("params.fsps_optional.imf_lower_limit"), float), ("imf_lower_limit must be a float")
+            if config.value("params.fsps_optional.masscut") != "default" and config.value("params.fsps_optional.masscut") != None:
+                assert isinstance(config.value("params.fsps_optional.masscut"), float), ("masscut must be a float")
+            # SFH parameters
+            if config.value("params.fsps_params.sfh")!=None and config.value("params.fsps_params.sfh") > 0:
+                if config.value("params.fsps_optional.sf_start") != "default" and config.value("params.fsps_optional.sf_start") != None:
+                    assert isinstance(config.value("params.fsps_optional.sf_start"), float), ("sf_start must be a float")
+                if config.value("params.fsps_optional.sf_trunc") != "default" and config.value("params.fsps_optional.sf_trunc") != None:
+                    assert isinstance(config.value("params.fsps_optional.sf_trunc"), float), ("sf_trunc must be a float")
+                if config.value("params.fsps_params.sfh") in [1, 4]:
+                    if config.value("params.fsps_optional.fburst") != "default" and config.value("params.fsps_optional.fburst") != None:
+                        assert isinstance(config.value("params.fsps_optional.fburst"), float), ("fburst must be a float")
+                    if config.value("params.fsps_optional.tburst") != "default" and config.value("params.fsps_optional.tburst") != None:
+                        assert isinstance(config.value("params.fsps_optional.tburst"), float), ("tburst must be a float")
+                    if config.value("params.fsps_optional.tau") != "default" and config.value("params.fsps_optional.tau") != None:
+                        assert isinstance(config.value("params.fsps_optional.tau"), float), ("tau must be a float")
+                    if config.value("params.fsps_optional.const") != "default" and config.value("params.fsps_optional.const") != None:
+                        assert isinstance(config.value("params.fsps_optional.const"), float), ("const must be a float")
+                elif config.value("params.fsps_params.sfh") == 5:
+                    if config.value("params.fsps_optional.sf_slope") != "default" and config.value("params.fsps_optional.sf_slope") != None:
+                        assert isinstance(config.value("params.fsps_optional.sf_slope"), float), ("sf_slope must be a float")
+            # Dust parameters
+            if config.value("params.fsps_optional.frac_nodust") != "default" and config.value("params.fsps_optional.frac_nodust") != None:
+                assert isinstance(config.value("params.fsps_optional.frac_nodust"), float), ("frac_nodust must be a float")
+            if config.value("params.fsps_params.dust_type") in [0, 4]:
+                if config.value("params.fsps_optional.dust_index") != "default" and config.value("params.fsps_optional.dust_index") != None:
+                    assert isinstance(config.value("params.fsps_optional.dust_index"), float), ("dust_index must be a float")
+            else:
+                if config.value("params.fsps_params.dust_type") == 1:
+                    if config.value("params.fsps_optional.uvb") != "default" and config.value("params.fsps_optional.uvb") != None:
+                        assert isinstance(config.value("params.fsps_optional.uvb"), float), ("uvb must be a float")
+                    if config.value("params.fsps_optional.mwr") != "default" and config.value("params.fsps_optional.mwr") != None:
+                        assert isinstance(config.value("params.fsps_optional.mwr"), float), ("mwr must be a float")
+                if config.value("params.fsps_optional.dust_tesc") != "default" and config.value("params.fsps_optional.dust_tesc") != None:
+                    assert isinstance(config.value("params.fsps_optional.dust_tesc"), float), ("dust_tesc must be a float")
+                if config.value("params.fsps_params.dust_type") not in [2, 3]:
+                    if config.value("params.fsps_optional.dust1") != "default" and config.value("params.fsps_optional.dust1") != None:
+                        assert isinstance(config.value("params.fsps_optional.dust1"), float), ("dust1 must be a float")
+                if config.value("params.fsps_params.dust_type") != 3:
+                    if config.value("params.fsps_optional.dust2") != "default" and config.value("params.fsps_optional.dust2") != None:
+                        assert isinstance(config.value("params.fsps_optional.dust2"), float), ("dust2 must be a float")
+                if config.value("params.fsps_optional.dust3") != "default" and config.value("params.fsps_optional.dust3") != None:
+                    assert isinstance(config.value("params.fsps_optional.dust3"), float), ( "dust3 must be a float")
+                if config.value("params.fsps_optional.frac_obrun") != "default" and config.value("params.fsps_optional.frac_obrun") != None:
+                    assert isinstance(config.value("params.fsps_optional.frac_obrun"), float), ("frac_obrun must be a float")
+                if config.value("params.fsps_optional.dust1_index") != "default" and config.value("params.fsps_optional.dust1_index") == None:
+                    assert isinstance(config.value("params.fsps_optional.dust1_index"), float), ("dust1_index must be a float")
+            if config.value("params.fsps_params.add_dust_emission") == True:
+                if config.value("params.fsps_optional.duste_gamma") != "default" and config.value("params.fsps_optional.duste_gamma") != None:
+                    assert isinstance(config.value("params.fsps_optional.duste_gamma"), float), ("duste_gamma must be a float")
+                if config.value("params.fsps_optional.duste_umin") != "default" and config.value("params.fsps_optional.duste_umin") != None:
+                    assert isinstance(config.value("params.fsps_optional.duste_umin"), float), ("duste_umin must be a float")
+                if config.value("params.fsps_optional.duste_qpah") != "default" and config.value("params.fsps_optional.duste_qpah") != None:
+                    assert isinstance(config.value("params.fsps_optional.duste_qpah"), float), ( "duste_qpah must be a float")
+            if config.value("params.fsps_params.add_agb_dust_model") == True:
+                if config.value("params.fsps_optional.agb_dust") != "default" and config.value("params.fsps_optional.agb_dust") != None:
+                    assert isinstance(config.value("params.fsps_optional.agb_dust"), float), ("agb_dust must be a float")
+            # Misc parameters
+            if config.value("params.fsps_optional.fagn") != "default" and config.value("params.fsps_optional.fagn") != None:
+                assert isinstance(config.value("params.fsps_optional.fagn"), float), ("fagn must be a float" )
+            if config.value("params.fsps_optional.agn_tau") != "default" and config.value("params.fsps_optional.agn_tau") != None:
+                assert isinstance(config.value("params.fsps_optional.agn_tau"), float), ("agn_tau must be a float")
+            if config.value("params.fsps_optional.logt_wmb_hot") != "default" and config.value("params.fsps_optional.logt_wmb_hot") != None:
+                assert isinstance(config.value("params.fsps_optional.logt_wmb_hot"), float), ("logt_wmb_hot must be a float")
+            if config.value("params.fsps_optional.redgb") != "default" and config.value("params.fsps_optional.redgb") != None:
+                assert isinstance(config.value("params.fsps_optional.redgb"), float), ("redgb must be a float")
+            if config.value("params.fsps_optional.agb") != "default" and config.value("params.fsps_optional.agb") != None:
+                assert isinstance(config.value("params.fsps_optional.agb"), float), ("agb must be a float")
+            if config.value("params.fsps_optional.fcstar") != "default" and config.value("params.fsps_optional.fcstar") != None:
+                assert isinstance(config.value("params.fsps_optional.fcstar"), float), ("fcstar must be a float")
+            if config.value("params.fsps_optional.sbss") != "default" and config.value("params.fsps_optional.sbss") != None:
+                assert isinstance(config.value("params.fsps_optional.sbss"), float), ("sbss must be a float")
+            if config.value("params.fsps_optional.fbhb") != "default" and config.value("params.fsps_optional.fbhb") != None:
+                assert isinstance(config.value("params.fsps_optional.fbhb"), float), ("fbhb must be a float")
+            if config.value("params.fsps_optional.pagb") != "default" and config.value("params.fsps_optional.pagb") != None:
+                assert isinstance(config.value("params.fsps_optional.pagb"), float), ("pagb must be a float")
+            if config.value("params.fsps_optional.frac_xrb") != "default" and config.value("params.fsps_optional.frac_xrb") != None:
+                assert isinstance(config.value("params.fsps_optional.frac_xrb"), float), ("frac_xrb must be a float")
+            if config.value("params.fsps_params.tpagb_norm_type") == 1:
+                if config.value("params.fsps_optional.dell") != "default" and config.value("params.fsps_optional.dell") != None:
+                    assert isinstance(config.value("params.fsps_optional.dell"), float), ("dell must be a float")
+                if config.value("params.fsps_optional.delt") != "default" and config.value("params.fsps_optional.delt") != None:
+                    assert isinstance(config.value("params.fsps_optional.delt"), float), ("delt must be a float")
+            if config.value("params.fsps_params.add_igm_absorption") == True:
+                if config.value("params.fsps_optional.igm_factor") != "default" and config.value("params.fsps_optional.igm_factor") != None:
+                    assert isinstance(config.value("params.fsps_optional.igm_factor"), float), ("igm_factor must be a float")
+        #Check that any bounds provided are valid if bounds are used
+        use_bounds=config.value("params.bounds.use_bounds")
+        if(use_bounds!=None):
+            assert isinstance(use_bounds, bool), "use_bounds must be boolean"
+        else:
+            use_bounds=False
+        if(use_bounds==True):
+            all_bounds=list(config.value("params.bounds").keys())[1:]
+            for j in range(0, len(all_bounds)):
+                b=all_bounds[j]
+                if(config.value("params.bounds."+b)!=None):
+                    assert isinstance(config.value("params.bounds."+b), list), "Bounds on "+b+" must be a list"
+                    btest=config.value("params.bounds."+b)
+                    assert len(btest)==2, "Bound on "+b+" must contain exactly two elements of the form [lower bound, upper bound]"
+                    assert isinstance(config.value("params.bounds."+b)[0], float) or isinstance(config.value("params.bounds."+b)[0], int), "Lower bound on "+b+" must be a float or int"
+                    assert isinstance(config.value("params.bounds."+b)[1], float) or isinstance(config.value("params.bounds."+b)[1], int), "Upper bound on "+b+" must be a float or int"
+                    assert config.value("params.bounds."+b)[0]<config.value("params.bounds."+b)[1], "Lower bound on "+b+" must be less than upper bound"
+
+    
+    def fit(self, theta, config_file, spec_data=None, phot_data=None):
+        """This function fits a simulated spectrum to provided data.
+        Parameters
+        ----------
+        theta: array 
+            Initial guess. Must be size appropriate to match other inputs
+        config_file: string
+            The file containing the configuration parameters. Contains a larger number of input parameters. See LINK for complete documentation. 
+        spec_data: string or list, optional
+            If local: if string: path to spectroscopic data in the form of standard Roman fits files. Must end with "/". If list: list of complete paths to files for analysis. For both: Header must include WCS and exposure time. If non-local: list of UUIDs or filepaths for specific images to be included in fit. If set to None when running non-locally, data will be pulled automatically. To exclude this type of data, input this as an empty list ([])
+            phot_data: string or list, optional
+                If string: path to photometric data in the form of standard Roman fits files. Must end with "/". If list: list of complete paths to files for analysis. For both: Header must include WCS, exposure time, and filter name. If non-local: list of UUIDs or filepaths for specific images to be included in fit. If set to None when running non-locally, data will be pulled automatically. To exclude this type of data, input this as an empty list ([])
+        
+        Returns
+        -------
+        best fit: hdul
+            Map of the properties of the best fit
+        best fit image: 2d array
+            Simulated image using the best fit properties
+        subtracted image: 2d array
+            Image containing the supernova with the simulated best fit image subtracted off
+        Note: each of these parameters can be returned and/or saved
+        """
+        #Get config file
+        config=Config.get(config_file, reread=True, prefix="spectroscopy.sloeginphys")
+        #Decide how chatty we're going to be
+        verbose=config.value("run.verbose")
+        if(verbose==None):
+            verbose=False
+        else:
+            assert isinstance(verbose, bool), "verbose must be a boolean"
+        if(verbose==True):
+            big_start=time.time()
+            self.log.info("Beginning fit")
+            self.log.info("Checking input parameters")
+        #Check that the configuration file is valid
+        self.check_config(config_file)
+        #Extract high-level parameters to make my life easier
+        z=config.value("params.z")
+        fixed_z=config.value("params.fixed_z")
+        z_func=config.value("params.z_func")
+        working_dir=config.value("paths.working_dir")
+        local=config.value("run.local")
+        filter_path=config.value("paths.filter_path")
+        provenance_tag=config.value("temp.provenance_tag")
+        spec_process=config.value("temp.spec_process")
+        phot_process=config.value("temp.phot_process")
+        mjd_min_offset=config.value("params.mjd_min_offset")
+        mjd_max_offset=config.value("params.mjd_max_offset")
+        mjd_disco=config.value("temp.mjd_disco")
+        sim_code=config.value("params.sim_code")
+        one_sed=config.value("params.one_sed")
+        method=config.value("params.method")
+        use_bayes=config.value("params.use_bayes")
+        niter=config.value("params.niter")
+        nwalkers=config.value("params.nwalkers")
+        buffer=config.value("params.buffer")
+        h0=config.value("params.H0")
+        omegaM=config.value("params.OmegaM")
+        return_fit=config.value("output.return_fit")
+        save_fit=config.value("output.save_fit")
+        fit_name=config.value("output.fit_name")
+        return_image=config.value("output.return_image")
+        save_image=config.value("output.save_image")
+        image_name=config.value("output.image_name")
+        return_subtracted=config.value("output.return_subtracted")
+        save_subtracted=config.value("output.save_subtracted")
+        subtracted_name=config.value("output.subtracted_name")
+        #Set default parameters
+        if(mjd_min_offset==None):
+            mjd_min_offset=90
+        if(mjd_max_offset==None):
+            mjd_max_offset=30
+        if(one_sed==None):
+            one_sed=False
+        if(use_bayes==None):
+            use_bayes=False
+        if(niter!=None):
+            niter=int(niter)
+        else:
+            niter=int(10**5)
+        if(nwalkers!=None):
+            nwalkers=int(nwalkers)
+        else:
+            nwalkers=8
+        if(buffer==None):
+            buffer=1
+        if(h0==None):
+            h0=70
+        if(omegaM==None):
+            omegaM=0.3
+        if(return_fit==None):
+            return_fit=True
+        if(save_fit==None):
+            #Temporary, until we have a file format
+            save_fit=False
+        if(return_image==None):
+            return_image=True
+        if(save_image==None):
+            save_image=False
+        if(return_subtracted==None):
+            return_subtracted=True
+        if(save_subtracted==None):
+            save_subtracted=False
+        if (sim_code=="BC03"):
             # Combine parameters to make the csp_params list used later
             csp_params = [lib, metallicity, imf, dust, sfh]
             # Check theta length
@@ -609,97 +862,20 @@ class fitter:
                     param_dict[4]="age"
                 else:
                     param_dict[2]="age"
+            if fixed_z==True:
+                param_dict[len(param_dict)]="z"
             else: #This should be impossible as this is checked above but you never know
                 self.log.error("Invalid SFH")
                 return
-        elif sim_code == "FSPS":
-            # Sets SPS to the provided path. This can also be set above in the imports section
+        elif sim_code=="FSPS":
             if (config.value("paths.sps_home")) != None:
-                assert isinstance(config.value("paths.sps_home"), str), "sps_home must be a string"
-                if not os.path.isdir(config.value("paths.sps_home")):
-                    self.log.error(config.value("paths.sps_home")+" does not exist")
-                    return
                 os.environ["SPS_HOME"] = config.value("paths.sps_home")
-            #Check parameters that must be selected at initialization
-            if config.value("params.fsps_params.zcontinuous") != None:
-                assert config.value("params.fsps_params.zcontinuous") in [0, 1, 2, 3], ("zcontinuous must be an integer and must be 0, 1, 2, or 3")
+            if(config.value("params.fsps_params.zcontinuous")!=None):
                 zcont=config.value("params.fsps_params.zcontinuous")
             else:
                 zcont=0
-            # Initialize stellar population object with the fixed parameters, checking to ensure the values are valid. Any parameters not specified in the configuration file will not be altered from the default
+            #Initialize the stellar population object we'll actually use in fitting
             sp=fsps.StellarPopulation(compute_vega_mags=False, vactoair_flag=False, zcontinuous=zcont)
-            if config.value("params.fsps_params.imf_type") != None:
-                assert config.value("params.fsps_params.imf_type") in [0, 1, 2, 3, 4, 5], ("imf_type must be an integer and must be 0, 1, 2, 3, 4, or 5")
-                sp.params["imf_type"] = config.value("params.fsps_params.imf_type")
-            if config.value("params.fsps_params.sfh") != None:
-                assert config.value("params.fsps_params.sfh") in [0, 1, 4, 5], ("sfh must be an integer and must be 0, 1, 4, or 5. Options 2 and 3 are not currently supported")
-                sp.params["sfh"] = config.value("params.fsps_params.sfh")
-            if config.value("params.fsps_params.dust_type") != None:
-                assert config.value("params.fsps_params.dust_type") in [0, 1, 2, 3, 4, 5, 6], ("dust_type must be an integer and must be 0, 1, 2, 3, 4, 5, or 6")
-                sp.params["dust_type"] = config.value("params.fsps_params.dust_type")
-            if config.value("params.fsps_params.tpagb_norm_type") != None:
-                assert config.value("params.fsps_params.tpagb_norm_type") in [0, 1, 2], ("tpagb_norm_type must be an integer and must be 0, 1, or 2")
-                sp.params["tpagb_norm_type"] = config.value("params.fsps_params.tpagb_norm_type")
-            if config.value("params.fsps_params.wgp1") != None:
-                assert config.value("params.fsps_params.wgp1") in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18], "wgp1 must be an integer and must be 1-18"
-                sp.params["wgp1"] = config.value("params.fsps_params.wgp1")
-            if config.value("params.fsps_params.wgp2") != None:
-                assert config.value("params.fsps_params.wgp2") in [1, 2, 3, 4, 5, 6], ("wgp2 must be an integer and must be 1, 2, 3, 4, 5, or 6")
-                sp.params["wgp2"] = config.value("params.fsps_params.wgp2")
-            if config.value("params.fsps_params.wgp3") != None:
-                assert config.value("params.fsps_params.wgp3") in [0, 1], ("wgp3 must be an integer and must be 0 or 1")
-                sp.params["wgp3"] = config.value("params.fsps_params.wgp3")
-            if config.value("params.fsps_params.zmet") != None:
-                assert isinstance(config.value("params.fsps_params.zmet"), int), ("zmet must be an integer")
-                sp.params["zmet"] = config.value("params.fsps_optional.zmet")
-            if config.value("params.fsps_params.use_wr_spectra") != None:
-                assert config.value("params.fsps_params.use_wr_spectra") in [0, 1], ("use_wr_spectra must be an integer and must be 0 or 1")
-                sp.params["use_wr_spectra"] = config.value("params.fsps_params.use_wr_spectra")
-            if config.value("params.fsps_params.add_xrb_emission") != None:
-                assert config.value("params.fsps_params.add_xrb_emission") in [0, 1], ("add_xrb_emission must be an integer and must be 0 or 1")
-                sp.params["add_xrb_emission"] = config.value("params.fsps_params.add_xrb_emission")
-            if config.value("params.fsps_params.add_agb_dust_model") != None:
-                assert isinstance(config.value("params.fsps_params.add_agb_dust_model"), bool), ("add_agb_dust_model must be a boolean")
-                sp.params["add_agb_dust_model"] = config.value("params.fsps_params.add_agb_dust_model")
-            if config.value("params.fsps_params.add_dust_emission") != None:
-                assert isinstance(config.value("params.fsps_params.add_dust_emission"), bool), ("add_dust_emission must be a boolean")
-                sp.params["add_dust_emission"] = config.value("params.fsps_params.add_dust_emission")
-            if config.value("params.fsps_params.add_igm_absorption") != None:
-                assert isinstance(config.value("params.fsps_params.add_igm_absorption"), bool), ("add_igm_absorption must be a boolean")
-                sp.params["add_igm_absorption"] = config.value("params.fsps_params.add_igm_absorption")
-            if config.value("params.fsps_params.add_neb_emission") != None:
-                assert isinstance(config.value("params.fsps_params.add_neb_emission"), bool), ("add_neb_emission must be a boolean")
-                sp.params["add_neb_emission"] = config.value("params.fsps_params.add_neb_emission")
-            if config.value("params.fsps_params.add_neb_continuum") != None:
-                assert isinstance(config.value("params.fsps_params.add_neb_continuum"), bool), ("add_neb_continuum must be a boolean")
-                sp.params["add_neb_continuum"] = config.value("params.fsps_params.add_neb_continuum")
-            if config.value("params.fsps_params.add_stellar_remnants") != None:
-                assert isinstance(config.value("params.fsps_params.add_stellar_remnants"), bool), ("add_stellar_remnants must be a boolean")
-                sp.params["add_stellar_remnants"] = config.value("params.fsps_params.add_stellar_remnants")
-            if config.value("params.fsps_params.compute_light_ages") != None:
-                assert isinstance(config.value("params.fsps_params.compute_light_ages"), bool), ("compute_light_ages must be a boolean")
-                sp.params["compute_light_ages"] = config.value("params.fsps_params.compute_light_ages")
-            if config.value("params.fsps_params.nebemlineinspec") != None:
-                assert isinstance(config.value("params.fsps_params.nebemlineinspec"), bool), ("nebemlineinspec must be a boolean")
-                sp.params["nebemlineinspec"] = config.value("params.fsps_params.nebemlineinspec")
-            if config.value("params.fsps_params.smooth_velocity") != None:
-                assert isinstance(config.value("params.fsps_params.smooth_velocity"), bool), ("smooth_velocity must be a boolean")
-                sp.params["smooth_velocity"] = config.value("params.fsps_params.smooth_velocity")
-            if config.value("params.fsps_params.smooth_lsf") != None:
-                assert isinstance(config.value("params.fsps_params.smooth_lsf"), bool), ("smooth_lsf must be a boolean")
-                sp.params["smooth_lsf"] = config.value("params.fsps_params.smooth_lsf")
-            if config.value("params.fsps_params.cloudy_dust") != None:
-                assert isinstance(config.value("params.fsps_params.cloudy_dust"), bool), ("cloudy_dust must be a boolean")
-                sp.params["cloudy_dust"] = config.value("params.fsps_params.cloudy_dust")
-            if config.value("params.fsps_params.sigma_smooth") != None:
-                assert isinstance(config.value("params.fsps_params.sigma_smooth"), float), ("sigma_smooth must be a float")
-                sp.params["sigma_smooth"] = config.value("params.fsps_params.sigma_smooth")
-            if config.value("params.fsps_params.min_wave_smooth") != None:
-                assert isinstance(config.value("params.fsps_params.min_wave_smooth"), float), ("min_wave_smooth must be a float")
-                sp.params["min_wave_smooth"] = config.value("params.fsps_params.min_wave_smooth")
-            if config.value("params.fsps_params.max_wave_smooth") != None:
-                assert isinstance(config.value("params.fsps_params.max_wave_smooth"), float), ("max_wave_smooth must be a float")
-                sp.params["max_wave_smooth"] = config.value("params.fsps_params.max_wave_smooth")
             # Assign the location of each parameter using a dictionary. Kind of an odd way to do this, but it assigns each used parameter an index that can be used later in fitting. Also sets any fixed values. If a parameter is set to "default", does nothing
             # If you know a better way to do this PLEASE let me know (isaac413@umn.edu)
             param_dict = {}
@@ -709,8 +885,6 @@ class fitter:
                 param_dict[i] = "tage"
                 i += 1
             else:
-                assert isinstance(config.value("params.fsps_optional.tage"), float), "tage must be a float"
-                assert config.value("params.fsps_optional.tage")>0, "tage must be greater than zero"
                 sp.params["tage"] = config.value("params.fsps_optional.tage")
             # Metallicity parameters
             if config.value("params.fsps_params.zcontinuous") != 0:
@@ -718,27 +892,23 @@ class fitter:
                     param_dict[i] = "logzsol"
                     i += 1
                 elif config.value("params.fsps_optional.logzsol") != "default":
-                    assert isinstance(config.value("params.fsps_optional.logzsol"), float), ("logzsol must be a float")
                     sp.params["logzsol"] = config.value("params.fsps_optional.logzsol")
                 if config.value("params.fsps_params.zcontinuous") == 2:
                     if config.value("params.fsps_optional.pmetals") == None:
                         param_dict[i] = "pmetals"
                         i += 1
                     elif config.value("params.fsps_optional.pmetals") != "default":
-                        assert isinstance(config.value("params.fsps_optional.pmetals"), float), ("pmetals must be a float")
                         sp.params["pmetals"] = config.value("params.fsps_optional.pmetals")
             if config.value("params.fsps_params.add_neb_emission") == True:
                 if config.value("params.fsps_optional.gas_logu") == None:
                     param_dict[i] = "gas_logu"
                     i += 1
                 elif config.value("params.fsps_optional.gas_logu") != "default":
-                    assert isinstance(config.value("params.fsps_optional.gas_logu"), float), ("gas_logu must be a float")
                     sp.params["gas_logu"] = config.value("params.fsps_optional.gas_logu")
                 if config.value("params.fsps_optional.gas_logz") == None:
                     param_dict[i] = "gas_logz"
                     i += 1
                 elif config.value("params.fsps_optional.gas_logz") != "default":
-                    assert isinstance(config.value("params.fsps_optional.gas_logz"), float), ("gas_logz must be a float")
                     sp.params["gas_logz"] = config.value("params.fsps_optional.gas_logz")
             # IMF parameters
             if config.value("params.fsps_params.imf_type") == 2:
@@ -746,51 +916,43 @@ class fitter:
                     param_dict[i] = "imf1"
                     i += 1
                 elif config.value("params.fsps_optional.imf1") != "default":
-                    assert isinstance(config.value("params.fsps_optional.imf1"), float), ("imf1 must be a float")
                     sp.params["imf1"] = config.value("params.fsps_optional.imf1")
                 if config.value("params.fsps_optional.imf2") == None:
                     param_dict[i] = "imf2"
                     i += 1
                 elif config.value("params.fsps_optional.imf2") != "default":
-                    assert isinstance(config.value("params.fsps_optional.imf2"), float), ("imf2 must be a float")
                     sp.params["imf2"] = config.value("params.fsps_optional.imf2")
                 if config.value("params.fsps_optional.imf3") == None:
                     param_dict[i] = "imf3"
                     i += 1
                 elif config.value("params.fsps_optional.imf3") != "default":
-                    assert isinstance(config.value("params.fsps_optional.imf3"), float), ("imf3 must be a float")
                     sp.params["imf3"] = config.value("params.fsps_optional.imf3")
             elif config.value("params.fsps_params.imf_type") == 3:
                 if config.value("params.fsps_optional.vdmc") == None:
                     param_dict[i] = "vdmc"
                     i += 1
                 elif config.value("params.fsps_optional.vdmc") != "default":
-                    assert isinstance(config.value("params.fsps_optional.vdmc"), float), ("vdmc must be a float")
                     sp.params["vdmc"] = config.value("params.fsps_optional.vdmc")
             elif config.value("params.fsps_params.imf_type") == 4:
                 if config.value("params.fsps_optional.mdave") == None:
                     param_dict[i] = "mdave"
                     i += 1
                 elif config.value("params.fsps_optional.mdave") != "default":
-                    assert isinstance(config.value("params.fsps_optional.mdave"), float), ("mdave must be a float")
                     sp.params["mdave"] = config.value("params.fsps_optional.mdave")
             if config.value("params.fsps_optional.imf_upper_limit") == None:
                 param_dict[i] = "imf_upper_limit"
                 i += 1
             elif config.value("params.fsps_optional.imf_upper_limit") != "default":
-                assert isinstance(config.value("params.fsps_optional.imf_upper_limit"), float), ("imf_upper_limit must be a float")
                 sp.params["imf_upper_limit"] = config.value("params.fsps_optional.imf_upper_limit")
             if config.value("params.fsps_optional.imf_lower_limit") == None:
                 param_dict[i] = "imf_lower_limit"
                 i += 1
             elif config.value("params.fsps_optional.imf_lower_limit") != "default":
-                assert isinstance(config.value("params.fsps_optional.imf_lower_limit"), float), ("imf_lower_limit must be a float")
                 sp.params["imf_lower_limit"] = config.value("params.fsps_optional.imf_lower_limit" )
             if config.value("params.fsps_optional.masscut") == None:
                 param_dict[i] = "masscut"
                 i += 1
             elif config.value("params.fsps_optional.masscut") != "default":
-                assert isinstance(config.value("params.fsps_optional.masscut"), float), ("masscut must be a float")
                 sp.params["masscut"] = config.value("params.fsps_optional.masscut")
             # SFH parameters
             if sp.params["sfh"] > 0:
@@ -798,59 +960,50 @@ class fitter:
                     param_dict[i] = "sf_start"
                     i += 1
                 elif config.value("params.fsps_optional.sf_start") != "default":
-                    assert isinstance(config.value("params.fsps_optional.sf_start"), float), ("sf_start must be a float")
                     sp.params["sf_start"] = config.value("params.fsps_optional.sf_start")
                 if config.value("params.fsps_optional.sf_trunc") == None:
                     param_dict[i] = "sf_trunc"
                     i += 1
                 elif config.value("params.fsps_optional.sf_trunc") != "default":
-                    assert isinstance(config.value("params.fsps_optional.sf_trunc"), float), ("sf_trunc must be a float")
                     sp.params["sf_trunc"] = config.value("params.fsps_optional.sf_trunc")
                 if config.value("params.fsps_params.sfh") in [1, 4]:
                     if config.value("params.fsps_optional.fburst") == None:
                         param_dict[i] = "fburst"
                         i += 1
                     elif config.value("params.fsps_optional.fburst") != "default":
-                        assert isinstance(config.value("params.fsps_optional.fburst"), float), ("fburst must be a float")
                         sp.params["fburst"] = config.value("params.fsps_optional.fburst")
                     if config.value("params.fsps_optional.tburst") == None:
                         param_dict[i] = "tburst"
                         i += 1
                     elif config.value("params.fsps_optional.tburst") != "default":
-                        assert isinstance(config.value("params.fsps_optional.tburst"), float), ("tburst must be a float")
                         sp.params["tburst"] = config.value("params.fsps_optional.tburst")
                     if config.value("params.fsps_optional.tau") == None:
                         param_dict[i] = "tau"
                         i += 1
                     elif config.value("params.fsps_optional.tau") != "default":
-                        assert isinstance(config.value("params.fsps_optional.tau"), float), ("tau must be a float")
                         sp.params["tau"] = config.value("params.fsps_optional.tau")
                     if config.value("params.fsps_optional.const") == None:
                         param_dict[i] = "const"
                         i += 1
                     elif config.value("params.fsps_optional.const") != "default":
-                        assert isinstance(config.value("params.fsps_optional.const"), float), ("const must be a float")
                         sp.params["const"] = config.value("params.fsps_optional.const")
                 elif config.value("params.fsps_params.sfh") == 5:
                     if config.value("params.fsps_optional.sf_slope") == None:
                         param_dict[i] = "sf_slope"
                         i += 1
                     elif config.value("params.fsps_optional.sf_slope") != "default":
-                        assert isinstance(config.value("params.fsps_optional.sf_slope"), float), ("sf_slope must be a float")
                         sp.params["sf_slope"] = config.value("params.fsps_optional.sf_slope")
             # Dust parameters
             if config.value("params.fsps_optional.frac_nodust") == None:
                 param_dict[i] = "frac_nodust"
                 i += 1
             elif config.value("params.fsps_optional.frac_nodust") != "default":
-                assert isinstance(config.value("params.fsps_optional.frac_nodust"), float), ("frac_nodust must be a float")
                 sp.params["frac_nodust"] = config.value("params.fsps_optional.frac_nodust")
             if config.value("params.fsps_params.dust_type") in [0, 4]:
                 if config.value("params.fsps_optional.dust_index") == None:
                     param_dict[i] = "dust_index"
                     i += 1
                 elif config.value("params.fsps_optional.dust_index") != "default":
-                    assert isinstance(config.value("params.fsps_optional.dust_index"), float), ("dust_index must be a float")
                     sp.params["dust_index"] = config.value("params.fsps_optional.dust_index")
             else:
                 if config.value("params.fsps_params.dust_type") == 1:
@@ -858,179 +1011,140 @@ class fitter:
                         param_dict[i] = "uvb"
                         i += 1
                     elif config.value("params.fsps_optional.uvb") != "default":
-                        assert isinstance(config.value("params.fsps_optional.uvb"), float), ("uvb must be a float")
                         sp.params["uvb"] = config.value("params.fsps_optional.uvb")
                     if config.value("params.fsps_optional.mwr") == None:
                         param_dict[i] = "mwr"
                         i += 1
                     elif config.value("params.fsps_optional.mwr") != "default":
-                        assert isinstance(config.value("params.fsps_optional.mwr"), float), ("mwr must be a float")
                         sp.params["mwr"] = config.value("params.fsps_optional.mwr")
                 if config.value("params.fsps_optional.dust_tesc") == None:
                     param_dict[i] = "dust_tesc"
                     i += 1
                 elif config.value("params.fsps_optional.dust_tesc") != "default":
-                    assert isinstance(config.value("params.fsps_optional.dust_tesc"), float), ("dust_tesc must be a float")
                     sp.params["dust_tesc"] = config.value("params.fsps_optional.dust_tesc")
                 if config.value("params.fsps_params.dust_type") not in [2, 3]:
                     if config.value("params.fsps_optional.dust1") == None:
                         param_dict[i] = "dust1"
                         i += 1
                     elif config.value("params.fsps_optional.dust1") != "default":
-                        assert isinstance(config.value("params.fsps_optional.dust1"), float), ("dust1 must be a float")
                         sp.params["dust1"] = config.value("params.fsps_optional.dust1")
                 if config.value("params.fsps_params.dust_type") != 3:
                     if config.value("params.fsps_optional.dust2") == None:
                         param_dict[i] = "dust2"
                         i += 1
                     elif config.value("params.fsps_optional.dust2") != "default":
-                        assert isinstance(config.value("params.fsps_optional.dust2"), float), ("dust2 must be a float")
                         sp.params["dust2"] = config.value("params.fsps_optional.dust2")
                 if config.value("params.fsps_optional.dust3") == None:
                     param_dict[i] = "dust3"
                     i += 1
                 elif config.value("params.fsps_optional.dust3") != "default":
-                    assert isinstance(config.value("params.fsps_optional.dust3"), float), ( "dust3 must be a float")
                     sp.params["dust3"] = config.value("params.fsps_optional.dust3")
                 if config.value("params.fsps_optional.frac_obrun") == None:
                     param_dict[i] = "frac_obrun"
                     i += 1
                 elif config.value("params.fsps_optional.frac_obrun") != "default":
-                    assert isinstance(config.value("params.fsps_optional.frac_obrun"), float), ("frac_obrun must be a float")
                     sp.params["frac_obrun"] = config.value("params.fsps_optional.frac_obrun")
                 if config.value("params.fsps_optional.dust1_index") == None:
                     param_dict[i] = "dust1_index"
                     i += 1
                 elif config.value("params.fsps_optional.dust1_index") != "default":
-                    assert isinstance(config.value("params.fsps_optional.dust1_index"), float), ("dust1_index must be a float")
                     sp.params["dust1_index"] = config.value("params.fsps_optional.dust1_index")
             if config.value("params.fsps_params.add_dust_emission") == True:
                 if config.value("params.fsps_optional.duste_gamma") == None:
                     param_dict[i] = "duste_gamma"
                     i += 1
                 elif config.value("params.fsps_optional.duste_gamma") != "default":
-                    assert isinstance(config.value("params.fsps_optional.duste_gamma"), float), ("duste_gamma must be a float")
                     sp.params["duste_gamma"] = config.value("params.fsps_optional.duste_gamma")
                 if config.value("params.fsps_optional.duste_umin") == None:
                     param_dict[i] = "duste_umin"
                     i += 1
                 elif config.value("params.fsps_optional.duste_umin") != "default":
-                    assert isinstance(config.value("params.fsps_optional.duste_umin"), float), ("duste_umin must be a float")
                     sp.params["duste_umin"] = config.value("params.fsps_optional.duste_umin")
                 if config.value("params.fsps_optional.duste_qpah") == None:
                     param_dict[i] = "duste_qpah"
                     i += 1
                 elif config.value("params.fsps_optional.duste_qpah") != "default":
-                    assert isinstance(config.value("params.fsps_optional.duste_qpah"), float), ( "duste_qpah must be a float")
                     sp.params["duste_qpah"] = config.value("params.fsps_optional.duste_qpah")
             if config.value("params.fsps_params.add_agb_dust_model") == True:
                 if config.value("params.fsps_optional.agb_dust") == None:
                     param_dict[i] = "agb_dust"
                     i += 1
                 elif config.value("params.fsps_optional.agb_dust") != "default":
-                    assert isinstance(config.value("params.fsps_optional.agb_dust"), float), ("agb_dust must be a float")
                     sp.params["agb_dust"] = config.value("params.fsps_optional.agb_dust")
             # Misc parameters
             if config.value("params.fsps_optional.fagn") == None:
                 param_dict[i] = "fagn"
                 i += 1
             elif config.value("params.fsps_optional.fagn") != "default":
-                assert isinstance(config.value("params.fsps_optional.fagn"), float), ("fagn must be a float" )
                 sp.params["fagn"] = config.value("params.fsps_optional.fagn")
             if config.value("params.fsps_optional.agn_tau") == None:
                 param_dict[i] = "agn_tau"
                 i += 1
             elif config.value("params.fsps_optional.agn_tau") != "default":
-                assert isinstance(config.value("params.fsps_optional.agn_tau"), float), ("agn_tau must be a float")
                 sp.params["agn_tau"] = config.value("params.fsps_optional.agn_tau")
             if config.value("params.fsps_optional.logt_wmb_hot") == None:
                 param_dict[i] = "logt_wmb_hot"
                 i += 1
             elif config.value("params.fsps_optional.logt_wmb_hot") != "default":
-                assert isinstance(config.value("params.fsps_optional.logt_wmb_hot"), float), ("logt_wmb_hot must be a float")
                 sp.params["logt_wmb_hot"] = config.value("params.fsps_optional.logt_wmb_hot")
             if config.value("params.fsps_optional.redgb") == None:
                 param_dict[i] = "redgb"
                 i += 1
             elif config.value("params.fsps_optional.redgb") != "default":
-                assert isinstance(config.value("params.fsps_optional.redgb"), float), ("redgb must be a float")
                 sp.params["redgb"] = config.value("params.fsps_optional.redgb")
             if config.value("params.fsps_optional.agb") == None:
                 param_dict[i] = "agb"
                 i += 1
             elif config.value("params.fsps_optional.agb") != "default":
-                assert isinstance(config.value("params.fsps_optional.agb"), float), ("agb must be a float")
                 sp.params["agb"] = config.value("params.fsps_optional.agb")
             if config.value("params.fsps_optional.fcstar") == None:
                 param_dict[i] = "fcstar"
                 i += 1
             elif config.value("params.fsps_optional.fcstar") != "default":
-                assert isinstance(config.value("params.fsps_optional.fcstar"), float), ("fcstar must be a float")
                 sp.params["fcstar"] = config.value("params.fsps_optional.fcstar")
             if config.value("params.fsps_optional.sbss") == None:
                 param_dict[i] = "sbss"
                 i += 1
             elif config.value("params.fsps_optional.sbss") != "default":
-                assert isinstance(config.value("params.fsps_optional.sbss"), float), ("sbss must be a float")
                 sp.params["sbss"] = config.value("params.fsps_optional.sbss")
             if config.value("params.fsps_optional.fbhb") == None:
                 param_dict[i] = "fbhb"
                 i += 1
             elif config.value("params.fsps_optional.fbhb") != "default":
-                assert isinstance(config.value("params.fsps_optional.fbhb"), float), ("fbhb must be a float")
                 sp.params["fbhb"] = config.value("params.fsps_optional.fbhb")
             if config.value("params.fsps_optional.pagb") == None:
                 param_dict[i] = "pagb"
                 i += 1
             elif config.value("params.fsps_optional.pagb") != "default":
-                assert isinstance(config.value("params.fsps_optional.pagb"), float), ("pagb must be a float")
                 sp.params["pagb"] = config.value("params.fsps_optional.pagb")
             if (config.value("params.fsps_optional.frac_xrb") == None):  # This parameter covers x-ray emission so it may be irrelevant
                 param_dict[i] = "frac_xrb"
                 i += 1
             elif config.value("params.fsps_optional.frac_xrb") != "default":
-                assert isinstance(config.value("params.fsps_optional.frac_xrb"), float), ("frac_xrb must be a float")
                 sp.params["frac_xrb"] = config.value("params.fsps_optional.frac_xrb")
             if config.value("params.fsps_params.tpagb_norm_type") == 1:
                 if (config.value("params.fsps_optional.dell") == None):
                     param_dict[i] = "dell"
                     i += 1
                 elif config.value("params.fsps_optional.dell") != "default":
-                    assert isinstance(config.value("params.fsps_optional.dell"), float), ("dell must be a float")
                     sp.params["dell"] = config.value("params.fsps_optional.dell")
                 if config.value("params.fsps_optional.delt") == None:
                     param_dict[i] = "delt"
                     i += 1
                 elif config.value("params.fsps_optional.delt") != "default":
-                    assert isinstance(config.value("params.fsps_optional.delt"), float), ("delt must be a float")
                     sp.params["delt"] = config.value("params.fsps_optional.delt")
             if config.value("params.fsps_params.add_igm_absorption") == True:
                 if config.value("params.fsps_optional.igm_factor") == None:
                     param_dict[i] = "igm_factor"
                     i += 1
                 elif config.value("params.fsps_optional.igm_factor") != "default":
-                    assert isinstance(config.value("params.fsps_optional.igm_factor"), float), ("igm_factor must be a float")
                     sp.params["igm_factor"] = config.value("params.fsps_optional.igm_factor")
+            if fixed_z==False:
+                param_dict[i]="z"
+                i+=1
         else:
             self.log.error("Invalid simulation code choice. Please select either BC03 (GALAXEV) or FSPS")
             return
-        #Check that any bounds provided are valid if bounds are used
-        use_bounds=config.value("params.bounds.use_bounds")
-        if(use_bounds!=None):
-            assert isinstance(use_bounds, bool), "use_bounds must be boolean"
-        else:
-            use_bounds=False
-        if(use_bounds==True):
-            for j in param_dict.keys():
-                if(config.value("params.bounds."+param_dict[j])!=None):
-                    assert isinstance(config.value("params.bounds."+param_dict[j]), list), "Bounds on "+param_dict[j]+" must be a list"
-                    btest=config.value("params.bounds."+param_dict[j])
-                    if(len(btest)!=2):
-                        self.log.error("Bound on "+param_dict[j]+" must contain exactly two elements of the form [lower bound, upper bound]")
-                        return
-                    assert isinstance(config.value("params.bounds."+param_dict[j])[0], float) or isinstance(config.value("params.bounds."+param_dict[j])[0], int), "Lower bound on "+param_dict[j]+" must be a float or int"
-                    assert isinstance(config.value("params.bounds."+param_dict[j])[1], float) or isinstance(config.value("params.bounds."+param_dict[j])[1], int), "Upper bound on "+param_dict[j]+" must be a float or int"
-                    assert config.value("params.bounds."+param_dict[j])[0]<config.value("params.bounds."+param_dict[j])[1], "Lower bound on "+param_dict[j]+" must be less than upper bound"
         #Length of parameter vector for each individual pixel
         plength=len(param_dict)
         #Check theta length
@@ -1163,12 +1277,13 @@ class fitter:
                     except:
                         self.log.warning("Fits file "+str(specs[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
             else:
-                spec_data_list.append(specs[i].data)
-                spec_err_list.append(specs[i].noise)
-                spec_size_list.append(specs[i].image_shape)
-                spec_wcs_list.append(specs[i].get_wcs().get_astropy_wcs())
-                spec_filt_list.append(specs[i].band)
-                spec_sca_list.append(specs[i].sca)
+                for i in range(0, len(specs)):
+                    spec_data_list.append(specs[i].data)
+                    spec_err_list.append(specs[i].noise)
+                    spec_size_list.append(specs[i].image_shape)
+                    spec_wcs_list.append(specs[i].get_wcs().get_astropy_wcs())
+                    spec_filt_list.append(specs[i].band)
+                    spec_sca_list.append(specs[i].sca)
         phot_data_list=[]
         phot_err_list=[]
         phot_filt_list=[]
@@ -1196,12 +1311,13 @@ class fitter:
                         except:
                             self.log.warning("Fits file "+str(phots[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
                 else:
-                    phot_data_list.append(phots[i].data)
-                    phot_err_list.append(phots[i].noise)
-                    phot_filt_list.append(phots[i].band)
-                    phot_size_list.append(phots[i].image_shape)
-                    phot_wcs_list.append(phots[i].get_wcs().get_astropy_wcs())
-                    phot_sca_list.append(phots[i].sca)
+                    for i in range(0, len(phots)):
+                        phot_data_list.append(phots[i].data)
+                        phot_err_list.append(phots[i].noise)
+                        phot_filt_list.append(phots[i].band)
+                        phot_size_list.append(phots[i].image_shape)
+                        phot_wcs_list.append(phots[i].get_wcs().get_astropy_wcs())
+                        phot_sca_list.append(phots[i].sca)
         if(len(phot_data_list)==0 and len(spec_data_list)==0):
             self.log.error("No valid data provided. Please ensure the files exist if running locally. Please use snappl to check that a nonzero number of images fall within the MJD range if running with the Roman database")
             return
@@ -1216,42 +1332,42 @@ class fitter:
             try:
                 bp_062 = SpectralElement.from_file(filter_path + "Roman_WFI.F062.dat")
             except:
-                self.log.error("Filter 062 is not in the filter file")
+                self.log.error("Filter 062 is not in the filter directory")
                 return
             try:
                 bp_087 = SpectralElement.from_file(filter_path + "Roman_WFI.F087.dat")
             except:
-                self.log.error("Filter 087 is not in the filter file")
+                self.log.error("Filter 087 is not in the filter directory")
                 return
             try:
                 bp_106 = SpectralElement.from_file(filter_path + "Roman_WFI.F106.dat")
             except:
-                self.log.error("Filter 106 is not in the filter file")
+                self.log.error("Filter 106 is not in the filter directory")
                 return
             try:
                 bp_129 = SpectralElement.from_file(filter_path + "Roman_WFI.F129.dat")
             except:
-                self.log.error("Filter 129 is not in the filter file")
+                self.log.error("Filter 129 is not in the filter directory")
                 return
             try:
                 bp_146 = SpectralElement.from_file(filter_path + "Roman_WFI.F146.dat")
             except:
-                self.log.error("Filter 146 is not in the filter file")
+                self.log.error("Filter 146 is not in the filter directory")
                 return
             try:
                 bp_158 = SpectralElement.from_file(filter_path + "Roman_WFI.F158.dat")
             except:
-                self.log.error("Filter 158 is not in the filter file")
+                self.log.error("Filter 158 is not in the filter directory")
                 return
             try:
                 bp_184 = SpectralElement.from_file(filter_path + "Roman_WFI.F184.dat")
             except:
-                self.log.error("Filter 184 is not in the filter file")
+                self.log.error("Filter 184 is not in the filter directory")
                 return
             try:
                 bp_213 = SpectralElement.from_file(filter_path + "Roman_WFI.F213.dat")
             except:
-                self.log.error("Filter 213 is not in the filter file")
+                self.log.error("Filter 213 is not in the filter directory")
                 return
             #if local==True:
             #    if filter_path == None:
@@ -1301,6 +1417,13 @@ class fitter:
             #        return
             #else:
             # Temporary, replace when filters are in the database somewhere
+        #Make the segmentation map that corresponds with the SN image. Basically transfers the base direct image to the SN image, which will be the base set of pixels going forward. 
+        #Make sure there is only one object in the segmentation map
+        assert np.max(self.seg_map_data)==1, "More than one object is included in the segmentation map. Please select an object using make_map or pick_object"
+        #Convert the underlying pixels to the SN image
+        sn_pixels, sn_sim, sn_map=overlap(self.seg_wcs, self.sn_wcs, self.sn_size[0], self.sn_size[1], self.pixPos, buffer, True, self.sn_data, "PRISM", self.sn_im.sca)
+        self.pixPos=np.array(np.transpose(np.where(sn_map!=0)))
+        self.numPix=self.pixPos.shape[0]
         #Overlap the pixel grids with pypolyclip to deal with mismatched WCS. Calculated here so they are only calculated once
         #Also generate simulator objects for spectroscopy, again so this only has to be done once
         #Should take on the order of seconds to minutes per image, depending on the number of pixels present in the segmentation map, a little longer for spectroscopic images to create the simulator
@@ -1311,21 +1434,21 @@ class fitter:
             start=time.time()
             self.log.info("Calculating pixel overlaps")
         #Set the size of the pixel grid the other images will be superimposed on
-        naxis=(self.seg_map_hdr["NAXIS1"], self.seg_map_hdr["NAXIS2"])
+        naxis=(self.sn_size[0], self.sn_size[1])
         #Now we do a clever trick to avoid having to polyclip everything, which takes hours
         # We first convert the segmentation map pixels into the data image, then make a box around those pixels. We only clip those pixels, then only include in the simulator ones that overlap with the segmentation map.
         # Should take on the order of seconds to minutes, depending on the number of pixels in the segmentation map
         spec_pixel_list=[]
         spec_sim_list=[]
         for i in range(0, len(spec_data_list)):
-            p, s, m=overlap(self.ref_wcs, spec_wcs_list[i], spec_size_list[i][0], spec_size_list[i][1], self.pixPos, buffer, True, spec_data_list[i], spec_filt_list[i], spec_sca_list[i])
+            p, s, m=overlap(self.sn_wcs, spec_wcs_list[i], spec_size_list[i][0], spec_size_list[i][1], self.pixPos, buffer, True, spec_data_list[i], spec_filt_list[i], spec_sca_list[i])
             spec_pixel_list.append(p)
             spec_sim_list.append(s)
         phot_pixel_list=[]
         #Photometry does not require the full simulator, but we still need the segmentation map, so we save that on its own
         phot_map_list=[]
         for i in range(0, len(phot_data_list)):
-            p, s=overlap(self.ref_wcs, phot_wcs_list[i], phot_size_list[i][0], phot_size_list[i][1], self.pixPos, buffer, False, phot_data_list[i], phot_filt_list[i], phot_sca_list[i])
+            p, s=overlap(self.sn_wcs, phot_wcs_list[i], phot_size_list[i][0], phot_size_list[i][1], self.pixPos, buffer, False, phot_data_list[i], phot_filt_list[i], phot_sca_list[i])
             phot_map_list.append(s)
             phot_pixel_list.append(p)
         if(verbose==True):
@@ -1337,7 +1460,10 @@ class fitter:
         def log_prior(theta):
             #Lower bound on age. Must be slightly greater than zero to prevent errors in simulation. Can be set lower or higher if desired
             low_age=1e-6
-            #Return zero if not using bounds. Bounds age, preventing it from being less than zero, to prevent errors in the modeling code
+            #Lower bound on redshift to enforce physical reality
+            low_z=0
+            use_bounds=config.value("params.bounds.use_bounds")
+            #Return zero if not using bounds. Bounds age, preventing it from being less than zero, to prevent errors in the modeling code. Bounds z to be greater than zero to ensure physical plausibility
             if(use_bounds==False):
                 if(one_sed==False):
                     for i in range(0, self.numPix):
@@ -1346,10 +1472,16 @@ class fitter:
                             if(param_dict[j]=="age" or param_dict[j]=="tage"):
                                 if(p[j]<low_age):
                                     return -np.inf
+                            if(param_dict[j]=="z"):
+                                if(p[j]<low_z):
+                                    return -np.inf
                 else:
                     for j in param_dict.keys():
                         if(param_dict[j]=="age" or param_dict[j]=="tage"):
                             if(theta[j]<low_age):
+                                return -np.inf
+                        if(param_dict[j]=="z"):
+                            if(theta[j]<low_z):
                                 return -np.inf
                 return 0.0
             else:
@@ -1361,15 +1493,21 @@ class fitter:
                             if(config.value("params.bounds."+param_dict[j])!=None):
                                 lower=float(config.value("params.bounds."+param_dict[j])[0])
                                 upper=float(config.value("params.bounds."+param_dict[j])[1])
-                                #If for some reason the user has set a limit on age less than zero, changes that to zero
+                                #If for some reason the user has set a limit on age or z less than zero, changes that to zero
                                 if(param_dict[j]=="age" or param_dict[j]=="tage"):
                                     if(lower<low_age):
                                         lower=0
+                                if(param_dict[j]=="z"):
+                                    if(lower<low_z):
+                                        lower=0
                                 if(p[j]<lower or p[j]>upper):
                                     return -np.inf
-                            #Even if age bound is not provided, prevent age from being less than zero to prevent errors in modeling code
+                            #Even if age or z bound is not provided, prevent age and z from being less than zero to prevent errors in modeling code
                             elif(param_dict[j]=="age" or param_dict[j]=="tage"):
                                 if(p[j]<low_age):
+                                    return -np.inf
+                            elif(param_dict[j]=="z"):
+                                if(p[j]<low_z):
                                     return -np.inf
                 else:
                     for j in param_dict.keys():
@@ -1381,11 +1519,19 @@ class fitter:
                         elif(param_dict[j]=="age" or param_dict[j]=="tage"):
                             if(theta[j]<low_age):
                                 return -np.inf
+                        elif(param_dict[j]=="z"):
+                            if(theta[j]<low_z):
+                                return -np.inf
                 #If after checking every parameter in every pixel, they're all within bounds, return 0.0
                 return 0.0
         # Define log likelihood. Makes spectra with the input parameters, simulates an image with those spectra, and then compares that with the provided data
         # Define the probability function
         def prob_makespec(theta):
+            if(fixed_z==False):
+                z_fit=theta[-1]
+                theta=theta[:-1]
+            else:
+                z_fit=z
             #Simulate the spectra for the underlying pixel grid, using the original segmentation map
             if sim_code=="BC03":
                 #If these variables haven't been defined because they're not needed, use None as a placeholder
@@ -1410,13 +1556,13 @@ class fitter:
                 #Retrieve the simulator object we made earlier
                 test_sim=spec_sim_list[k]
                 test_pixPos=np.array(np.transpose(np.where(test_sim.segMapData!=0)))
-                translate_SED(test_pixPos, pix, one_sed, working_dir, z, cosmo)
+                translate_SED(test_pixPos, pix, one_sed, working_dir, z_fit, cosmo)
                 #Multiply the spectra and add them to the simulator
                 for q in range(0, len(test_pixPos)):
                     x=test_pixPos[q][1]
                     y=test_pixPos[q][0]
                     test_sim.sourceColl[0].seds[q]=test_sim.sourceColl[0].seds[q].from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
-                    test_sim.sourceColl[0].seds[q].redshift(z)
+                    test_sim.sourceColl[0].seds[q].redshift(z_fit)
                 # Do the simulation
                 test = test_sim.project(0, "dummy")
                 # Calculate log likelihood as the sum of normals
@@ -1441,11 +1587,11 @@ class fitter:
                 #Get the pixel positions
                 test_pixPos=np.array(np.transpose(np.where(smap!=0)))
                 #Multiply the spectra and calculate the synthetic photometry, then compare to the data
-                translate_SED(test_pixPos, pix, one_sed, working_dir, z, cosmo)
+                translate_SED(test_pixPos, pix, one_sed, working_dir, z_fit, cosmo)
                 for q in range(0, len(test_pixPos)):
                     #Do the synthetic photometry
                     test_spec=SourceSpectrum.from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
-                    test_spec.z=z
+                    test_spec.z=z_fit
                     if(filter in ["R062", "062", "F062"]):
                         obs=Observation(test_spec, bp_062).effstim(flux_unit="flam").value
                     elif(filter in ["Z087", "087", "F087"]):
@@ -1518,9 +1664,12 @@ class fitter:
             start=time.time()
             self.log.info("Simulating best-fit image")
         best_fit=minimum.x
-        #Convert the underlying pixels to the SN image
-        sn_pixels, sn_sim, sn_map=overlap(self.ref_wcs, self.sn_wcs, self.sn_size[0], self.sn_size[1], self.pixPos, buffer, True, self.sn_data, "PRISM", self.sn_im.sca)
         #Simulate the spectra for the pixels using the best fit parameters
+        if(fixed_z==False):
+            z_best=best_fit[-1]
+            best_fit=best_fit[:-1]
+        else:
+            z_best=z
         if sim_code=="BC03":
                 #If these variables haven't been defined because they're not needed, use None as a placeholder
                 try:
@@ -1534,20 +1683,16 @@ class fitter:
                 make_SED_bc03(working_dir, one_sed, best_fit, plength, self.pixPos, ised_dir, csp_params, recyc, file_names)
         elif sim_code=="FSPS":
             make_SED_fsps(working_dir, one_sed, best_fit, param_dict, plength, sp, self.pixPos)
-        #Add the spectra to the simulator object
-        #Get the data
-        sn_pixPos=np.where((sn_map!=0))
-        translate_SED(sn_pixPos, sn_pixels, one_sed, working_dir, z, cosmo, verbose=True)
-        #Multiply the spectra and add them to the simulator   
-        for q in range(0, len(sn_pixPos)):
+        #Add the spectra to the simulator object 
+        for q in range(0, len(self.pixPos)):
             if(one_sed==True):
                 sn_sim.sourceColl[0].seds[q]=sn_sim.sourceColl[0].seds[q].from_file(working_dir+"test.txt")
-                sn_sim.sourceColl[0].seds[q].redshift(z)
+                sn_sim.sourceColl[0].seds[q].redshift(z_best)
             else:
                 x=self.pixPos[q][1]
                 y=self.pixPos[q][0]
                 sn_sim.sourceColl[0].seds[q]=sn_sim.sourceColl[0].seds[q].from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
-                sn_sim.sourceColl[0].seds[q].redshift(z)
+                sn_sim.sourceColl[0].seds[q].redshift(z_best)
         #Do the simulation
         best_im=sn_sim.project(0, "dummy")
         if(verbose==True):
@@ -1563,44 +1708,10 @@ class fitter:
                 test_sim=spec_sim_list[i]
                 test_pixPos=np.array(np.transpose(np.where(test_sim.segMapData!=0)))
                 #Multiply the spectra and add them to the simulator
+                translate_SED(test_pixPos, pix, one_sed, working_dir, z_best, cosmo, verbose=False, name="best_fit")
                 for q in range(0, len(test_pixPos)):
-                    #Get spectra and multiply
-                    #Parameters of the pixel
-                    y=test_pixPos[q][0]
-                    x=test_pixPos[q][1]
-                    pix_params=[]
-                    #Get the polyclip parameters
-                    for t in range(0, len(pix)):
-                        test_x=pix[t][0]
-                        test_y=pix[t][1]
-                        if(test_x==x and test_y==y):
-                            pix_params=pix[t]
-                    xc=pix_params[2]
-                    yc=pix_params[3]
-                    area=pix_params[4]
-                    #Load in the first spectrum to get wavelength
-                    if(one_sed==True):
-                        first_spec=np.loadtxt(working_dir+"test.txt")
-                    else:
-                        first_spec=np.loadtxt(working_dir+str(xc[0])+"_"+str(yc[0])+".txt")
-                    wave=np.array(first_spec[:, 0])
-                    dist=cosmo.luminosity_distance(z).value*3.08567758128e24 #Mpc to cm
-                    temp_flux=first_spec[:, 1]*3.826e33*(1/(4*np.pi*dist**2))
-                    total_flux=np.array(area[0]*temp_flux)
-                    #Sum over all included pixels
-                    for r in range(1, len(xc)):
-                        if(one_sed==True):
-                            temp_flux=first_spec[:, 1]
-                        else:
-                            spec_temp=np.loadtxt(working_dir+str(xc[r])+"_"+str(yc[r])+".txt")
-                            temp_flux=spec_temp[:, 1]
-                        flux=temp_flux*3.826e33*(1/(4*np.pi*dist**2))
-                        total_flux=total_flux+(area[r]*flux)
-                    #Add the spectrum to the simulator and save the file
-                    out_data=np.transpose(np.array([wave, total_flux]))
-                    np.savetxt(working_dir+str(x)+"_"+str(y)+"_best_fit.txt", out_data)
                     test_sim.sourceColl[0].seds[q]=test_sim.sourceColl[0].seds[q].from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
-                    test_sim.sourceColl[0].seds[q].redshift(z)
+                    test_sim.sourceColl[0].seds[q].redshift(z_best)
                 # Do the simulation
                 test = test_sim.project(0, "dummy")
                 mask=np.where(test!=0)
@@ -1609,63 +1720,32 @@ class fitter:
             for i in range(0, len(phots)):
                 data=phot_data_list[i]
                 error=phot_err_list[i]
-                filter=phot_filt_list[i]
+                filt=phot_filt_list[i]
                 pix=phot_pixel_list[i]
                 map=phot_map_list[i]
                 #Get the pixel positions
                 test_pixPos=np.array(np.transpose(np.where(map!=0)))
                 #Multiply the spectra and calculate the synthetic photometry, then compare to the data
+                translate_SED(test_pixPos, pix, one_sed, working_dir, z_best, cosmo, verbose=False, name="best_fit")
                 for q in range(0, len(test_pixPos)):
-                    #Get spectra and multiply
-                    #Parameters of the pixel
-                    y=test_pixPos[q][0]
-                    x=test_pixPos[q][1]
-                    pix_params=[]
-                    #Get the polyclip parameters
-                    for t in range(0, len(pix)):
-                        test_x=pix[t][0]
-                        test_y=pix[t][1]
-                        if(test_x==x and test_y==y):
-                            pix_params=pix[t]
-                    xc=pix_params[2]
-                    yc=pix_params[3]
-                    area=pix_params[4]
-                    #Load in the first spectrum to get wavelength
-                    if(one_sed==True):
-                        first_spec=np.loadtxt(working_dir+"test.txt")
-                    else:
-                        first_spec=np.loadtxt(working_dir+str(xc[0])+"_"+str(yc[0])+".txt")
-                    wave=np.array(first_spec[:, 0])
-                    dist=cosmo.luminosity_distance(z).value*3.08567758128e24 #Mpc to cm
-                    temp_flux=first_spec[:, 1]*3.826e33*(1/(4*np.pi*dist**2))
-                    total_flux=np.array(area[0]*temp_flux)
-                    #Sum over all included pixels
-                    for r in range(1, len(xc)):
-                        if(one_sed==True):
-                            temp_flux=first_spec[:, 1]
-                        else:
-                            spec_temp=np.loadtxt(working_dir+str(xc[r])+"_"+str(yc[r])+".txt")
-                            temp_flux=spec_temp[:, 1]
-                        flux=temp_flux*3.826e33*(1/(4*np.pi*dist**2))
-                        total_flux=total_flux+(area[r]*flux)
                     #Do the synthetic photometry
                     test_spec=SourceSpectrum.from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
-                    test_spec.z=z
-                    if(filter in ["R062", "062", "F062"]):
+                    test_spec.z=z_best
+                    if(filt in ["R062", "062", "F062"]):
                         obs=Observation(test_spec, bp_062).effstim(flux_unit="flam").value
-                    elif(filter in ["Z087", "087", "F087"]):
+                    elif(filt in ["Z087", "087", "F087"]):
                         obs=Observation(test_spec, bp_087).effstim(flux_unit="flam").value
-                    elif(filter in ["Y106", "106", "F106"]):
+                    elif(filt in ["Y106", "106", "F106"]):
                         obs=Observation(test_spec, bp_106).effstim(flux_unit="flam").value
-                    elif(filter in ["J129", "129", "F129"]):
+                    elif(filt in ["J129", "129", "F129"]):
                         obs=Observation(test_spec, bp_129).effstim(flux_unit="flam").value
-                    elif(filter in ["W146", "146", "F146"]):
+                    elif(filt in ["W146", "146", "F146"]):
                         obs=Observation(test_spec, bp_146).effstim(flux_unit="flam").value
-                    elif(filter in ["H158", "158", "F158"]):
+                    elif(filt in ["H158", "158", "F158"]):
                         obs=Observation(test_spec, bp_158).effstim(flux_unit="flam").value
-                    elif(filter in ["F184", "184"]):
+                    elif(filt in ["F184", "184"]):
                         obs=Observation(test_spec, bp_184).effstim(flux_unit="flam").value
-                    elif(filter in ["K213", "213", "F213"]):
+                    elif(filt in ["K213", "213", "F213"]):
                         obs=Observation(test_spec, bp_213).effstim(flux_unit="flam").value
                     else:
                         self.log.error(str(filter)+" is not a valid filter. Please check header of image "+str(phots[k])+" and ensure the filter is listed")
@@ -1680,22 +1760,24 @@ class fitter:
         hdul=fits.HDUList([hdu0])
         count=0
         for k in param_dict.keys():
-            data=np.zeros(self.seg_map_data.shape)
-            for l in range(0, len(self.pixPos)):
-                x=self.pixPos[l][1]
-                y=self.pixPos[l][0]
-                if(one_sed==True):
-                    data[y, x]=best_fit[count]
-                else:
-                    data[y, x]=best_fit[int((l*plength)+count)]
-            new_header=self.ref_wcs.to_header()
-            new_header["PROPERTY"]=k
-            new_header["CHI2"]=chi2
-            new_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
-            new_header["COMMENT"]="Best fit properties for each pixel and chi^2 value of the fit"
-            hdu=fits.ImageHDU(data)
-            hdul.append(hdu)
-            count=count+1
+            if(k!="z"): 
+                data=np.zeros(self.sn_data.shape)
+                for l in range(0, len(self.pixPos)):
+                    x=self.pixPos[l][1]
+                    y=self.pixPos[l][0]
+                    if(one_sed==True):
+                        data[y, x]=best_fit[count]
+                    else:
+                        data[y, x]=best_fit[int((l*plength)+count)]
+                new_header=self.sn_wcs.to_header()
+                new_header["PROPERTY"]=k
+                new_header["CHI2"]=chi
+                new_header["REDSHIFT"]=z_best
+                new_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
+                new_header["COMMENT"]="Best fit properties for each pixel and chi^2 value of the fit"
+                hdu=fits.ImageHDU(data)
+                hdul.append(hdu)
+                count=count+1
         #Organize the requested outputs
         if(use_bayes==False):
             return_list=[]
@@ -1717,7 +1799,7 @@ class fitter:
                 return_list.append(best_im)
             if(save_image==True):
                 if(local==True):
-                    im_header=self.dir_im_hdr
+                    im_header=self.sn_wcs.to_header()
                     im_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
                     hdu = fits.PrimaryHDU(best_im, im_header)
                     if image_name == None:
@@ -1735,38 +1817,30 @@ class fitter:
                     #else:
                     #    hdu.writeto(image_name + ".fits", overwrite=True)
             if(return_subtracted==True or save_subtracted==True):
-                sub_im=Image.find_images(filepath=ref_im)
-                if(sub_im==None):
-                    assert isinstance(ref_im, str), str(ref_im)+" is not a valid UUID"
-                    sub_im=Image.get_image(ref_im)
-                if(sub_im==None):
-                    self.log.error("The reference image is not valid. Image subtraction cannot be performed")
-                else:
-                    sub_data=sub_im.data
-                    sub=sub_data-best_im
-                    if(return_subtracted==True):
-                        return_list.append(sub)
-                    if(save_subtracted==True):
-                        if(local==True):
-                            im_header=self.dir_im_hdr
-                            im_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
-                            im_header["COMMENT"]="Host-galaxy subtracted image"
-                            hdu = fits.PrimaryHDU(sub, im_header)
-                            if subtracted_name == None:
-                                hdu.writeto("best_fit_subtracted.fits", overwrite=True)
-                            else:
-                                hdu.writeto(subtracted_name + ".fits", overwrite=True)
+                sub=self.sn_data-best_im
+                if(return_subtracted==True):
+                    return_list.append(sub)
+                if(save_subtracted==True):
+                    if(local==True):
+                        self.sn_wcs.to_header()
+                        im_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
+                        im_header["COMMENT"]="Host-galaxy subtracted image"
+                        hdu = fits.PrimaryHDU(sub, im_header)
+                        if subtracted_name == None:
+                            hdu.writeto("best_fit_subtracted.fits", overwrite=True)
                         else:
-                            #Temporary, until we have a format for 2-D spectra
-                            self.log.error("Saving the subtracted image not currently supported")
-                            #im_header=self.seg_map_hdr
-                            #im_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
-                            #im_header["COMMENT"]="Host-galaxy subtracted image"
-                            #hdu = fits.PrimaryHDU(sub, im_header)
-                            #if subtracted_name == None:
-                            #    hdu.writeto("best_fit_subtracted.fits", overwrite=True)
-                            #else:
-                            #    hdu.writeto(subtracted_name + ".fits", overwrite=True)
+                            hdu.writeto(subtracted_name + ".fits", overwrite=True)
+                    else:
+                        #Temporary, until we have a format for 2-D spectra
+                        self.log.error("Saving the subtracted image not currently supported")
+                        #im_header=self.seg_map_hdr
+                        #im_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
+                        #im_header["COMMENT"]="Host-galaxy subtracted image"
+                        #hdu = fits.PrimaryHDU(sub, im_header)
+                        #if subtracted_name == None:
+                        #    hdu.writeto("best_fit_subtracted.fits", overwrite=True)
+                        #else:
+                        #    hdu.writeto(subtracted_name + ".fits", overwrite=True)
             if(verbose==True):
                 self.log.info("Fit success!")
                 self.log.info("Total time to run: "+str(datetime.timedelta(seconds=(time.time()-big_start))))
