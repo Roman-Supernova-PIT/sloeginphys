@@ -8,7 +8,7 @@ from astropy.coordinates import SkyCoord
 from astropy import units as u
 from roman_wfss.modeling.linear import WFSSImageSimulator_NERSC
 from .bc03utils import make_spec
-from .fit_utils import overlap, make_SED_bc03, make_SED_fsps, translate_SED
+from .fit_utils import _overlap, _make_SED_bc03, _make_SED_fsps, _translate_SED
 from scipy.optimize import least_squares, minimize
 from synphot import SpectralElement, Observation, SourceSpectrum
 from snappl.logger import SNLogger
@@ -21,11 +21,12 @@ import os
 import glob
 import time
 import datetime
+import scipy.interpolate as spi
 os.environ["SPS_HOME"] = "/global/u1/a/aisaacs/FSPS/"
 try:
     import fsps
 except:
-    print("pyFSPS not installed or SPS_HOME directory not configured. Set SPS_HOME if you want to use FSPS. Otherwise, only BC03 may be used in fitting.")
+    print("pyFSPS not installed or SPS_HOME directory not configured. Set SPS_HOME in your environment or sps_home in the configuration file if you want to use FSPS. Otherwise, only BC03 may be used in fitting.")
 #try:
 #    import emcee
 #except:
@@ -98,16 +99,16 @@ class fitter:
                 return
             dir_im_temp.close()
             #Retrieve data from the segmentation map
-            self.seg_map_hdr=seg_map_temp[1].header
-            self.seg_map_data=seg_map_temp[1].data
+            self.seg_map_hdr=seg_map_temp[0].header
+            self.seg_map_data=seg_map_temp[0].data
             #Extra copy holds the original data so another RA/DEC can be used later
-            self.seg_map_data_orig=seg_map_temp[1].data
+            self.seg_map_data_orig=seg_map_temp[0].data
             seg_map_temp.close()
             self.seg_wcs=WCS(self.seg_map_hdr)
             #Retrieve data from the supernova image
             self.sn_data=sn_im_temp[1].data
             self.sn_wcs=WCS(sn_im_temp[1].header)
-            self.sn_size=(sn_im_temp[1].header["NAXIS1"], self.sn_im[1].header["NAXIS2"])
+            self.sn_size=(sn_im_temp[1].header["NAXIS1"], sn_im_temp[1].header["NAXIS2"])
             self.sn_sca=sn_im_temp[1].header["SCA_NUM"]
             sn_im_temp.close()
         else:
@@ -321,13 +322,12 @@ class fitter:
         save_subtracted=config.value("output.save_subtracted")
         subtracted_name=config.value("output.subtracted_name")
         assert isinstance(fixed_z, bool), "fixed_z must be a boolean"
-        assert fixed_z==True, "Flexible redshift fitting not yet supported"
         if fixed_z==True:
             assert z != None, "Redshift must be provided"
             assert isinstance(z, float) or isinstance(z, int), "z must be float or int"
             assert z>0, "z must be greater than zero"
         else:
-            assert z_func!=None, "A PDF should be provided"
+            assert z_func!=None, "A PDF for the redshift must be provided"
         if(local!=None):
             assert isinstance(local, bool), "local must be a boolean"
         else:
@@ -347,12 +347,12 @@ class fitter:
         if(mjd_min_offset!=None):
             assert isinstance(mjd_min_offset, float) or isinstance(mjd_min_offset, int), "mjd_min_offset must be a float or int"
         else:
-            mjd_min_offset=90
+            mjd_min_offset=-90
         if(mjd_max_offset!=None):
             assert isinstance(mjd_max_offset, float) or isinstance(mjd_max_offset, int), "mjd_max_offset must be a float or int"
         else:
-            mjd_max_offset=30
-        assert mjd_min_offset>mjd_max_offset, "Minimum offset must be greater than maximum offset"
+            mjd_max_offset=-30
+        assert mjd_min_offset<mjd_max_offset, "Minimum offset must be less than maximum offset"
         assert sim_code!=None, "Simulation code choice must be provided"
         assert sim_code=="BC03" or sim_code=="FSPS", "sim_code must be a string, and must be either BC03 or FSPS"
         if(one_sed!=None):
@@ -361,9 +361,7 @@ class fitter:
             assert isinstance(method, str), "method must be a string"
         if(use_bayes!=None):
             assert isinstance(use_bayes, bool), "use_bayes must be boolean. use_bayes=True not currently supported"
-            if(use_bayes==True):
-                self.log.error("Bayesian statistics not currently supported")
-                use_bayes=False
+            assert use_bayes==False, "Bayesian statistics not currently supported" #Temporary
         if(niter!=None):
             assert isinstance(niter, float) or isinstance(niter, int), "niter must be int or float"
         if(nwalkers!=None):
@@ -723,9 +721,9 @@ class fitter:
         return_subtracted=config.value("output.return_subtracted")
         save_subtracted=config.value("output.save_subtracted")
         subtracted_name=config.value("output.subtracted_name")
-        #Set default parameters
+        #Set high level parameters
         if(mjd_min_offset==None):
-            mjd_min_offset=90
+            mjd_min_offset=-90
         if(mjd_max_offset==None):
             mjd_max_offset=30
         if(one_sed==None):
@@ -759,6 +757,12 @@ class fitter:
             return_subtracted=True
         if(save_subtracted==None):
             save_subtracted=False
+        #Construct spline of the PDF if z is not fixed
+        if(fixed_z==False):
+            xs=z_func[0]
+            ys=z_func[1]
+            z_spline=spi.make_splrep(xs, ys)
+        #Determine which parameters are being fit and make a dictionary of them 
         if (sim_code=="BC03"):
             # Combine parameters to make the csp_params list used later
             csp_params = [lib, metallicity, imf, dust, sfh]
@@ -812,58 +816,66 @@ class fitter:
                         return
             #Creates parameter dictionary for later use and a dictionary to pass to bc03utils
             param_dict={}
+            i=0
             if (sfh==0 or sfh==6):
                 if(dust==True):
-                    param_dict[0]="mu"
-                    param_dict[1]="tauV"
-                    param_dict[2]="age"
-                else:
-                    param_dict[0]="age"
+                    param_dict[i]="mu"
+                    i+=1
+                    param_dict[i]="tauV"
+                    i+=1
+                param_dict[i]="age"
+                i+=1
             elif(np.abs(sfh)==1):
-                param_dict={0: "tau"}
+                param_dict[i]="tau"
+                i+=1
                 if(recyc==True):
-                    param_dict[1]="epsilon"
-                    param_dict[2]="Tcut"
-                    if(dust==True):
-                        param_dict[3]="mu"
-                        param_dict[4]="tauV"
-                        param_dict[5]="age"
-                    else:
-                        param_dict[3]="age"
-                else:
-                    param_dict[1]="Tcut"
-                    if(dust==True):
-                        param_dict[2]="mu"
-                        param_dict[3]="tauV"
-                        param_dict[4]="age"
-                    else:
-                        param_dict[2]="age"
+                    param_dict[i]="epsilon"
+                    i+=1
+                    param_dict[i]="Tcut"
+                    i+=1
+                if(dust==True):
+                    param_dict[i]="mu"
+                    i+=1
+                    param_dict[i]="tauV"
+                    i+=1
+                param_dict[i]="age"
+                i+=1
             elif(sfh==2):
-                param_dict={0: "tau"}
+                param_dict[i]="tau"
+                i+=1
                 if(dust==True):
-                    param_dict[1]="mu"
-                    param_dict[2]="tauV"
-                    param_dict[3]="age"
-                else:
-                    param_dict[1]="age"
+                    param_dict[i]="mu"
+                    i+=1
+                    param_dict[i]="tauV"
+                    i+=1
+                param_dict[1]="age"
+                i+=1
             elif(sfh==3):
-                param_dict={0: "sfr", 1: "Tcut"}
+                param_dict[i]="sfr"
+                i+=1
+                param_dict[i]="Tcut"
+                i+=1
                 if(dust==True):
-                    param_dict[2]="mu"
-                    param_dict[3]="tauV"
-                    param_dict[4]="age"
-                else:
-                    param_dict[2]="age"
+                    param_dict[i]="mu"
+                    i+=1
+                    param_dict[i]="tauV"
+                    i+=1
+                param_dict[i]="age"
+                i+=1
             elif(sfh==4 or sfh==5):
-                param_dict={0: "tau", 1: "Tcut"}
+                param_dict[i]="tau"
+                i+=1
+                param_dict[i]="Tcut"
+                i+=1
                 if(dust==True):
-                    param_dict[2]="mu"
-                    param_dict[3]="tauV"
-                    param_dict[4]="age"
-                else:
-                    param_dict[2]="age"
+                    param_dict[i]="mu"
+                    i+=1
+                    param_dict[i]="tauV"
+                    i+=1
+                param_dict[i]="age"
+                i+=1
             if fixed_z==True:
-                param_dict[len(param_dict)]="z"
+                param_dict[i]="z"
             else: #This should be impossible as this is checked above but you never know
                 self.log.error("Invalid SFH")
                 return
@@ -1195,11 +1207,11 @@ class fitter:
                     if (mjd_min_offset==None or mjd_max_offset==None):
                         self.log.error("For automatic data retrieval, please provide a date range")
                         return
-                    mjd_min=mjd_disco-mjd_min_offset
-                    mjd_max=mjd_disco-mjd_max_offset
+                    mjd_min=mjd_disco+mjd_min_offset
+                    mjd_max=mjd_disco+mjd_max_offset
                     specs=Image.find_images(provenance_tag=provenance_tag, process=spec_process, ra=self.ra, dec=self.dec, mjd_min=mjd_min, mjd_max=mjd_max)
                 else:
-                    self.log.error("RA and DEC must be provided to automatically retrieve images")
+                    self.log.error("For automatic data retrieval, pleas provide RA and DEC")
                     return
             #If specific data is provided as a list, retrieve those images only
             elif(isinstance(spec_data, list)):
@@ -1225,11 +1237,11 @@ class fitter:
                     if (mjd_min_offset==None or mjd_max_offset==None):
                         self.log.error("For automatic data retrieval, please provide a date range")
                         return
-                    mjd_min=mjd_disco-mjd_min_offset
-                    mjd_max=mjd_disco-mjd_max_offset
+                    mjd_min=mjd_disco+mjd_min_offset
+                    mjd_max=mjd_disco+mjd_max_offset
                     phots=Image.find_images(provenance_tag=provenance_tag, process=phot_process, ra=self.ra, dec=self.dec, mjd_min=mjd_min, mjd_max=mjd_max)
                 else:
-                    self.log.error("RA and DEC must be provided to automatically retrieve images")
+                    self.log.error("For automatic data retrieval, pleas provide RA and DEC")
                     return
             #If specific data is provided as a list, retrieve those images only
             elif(isinstance(phot_data, list)):
@@ -1251,7 +1263,7 @@ class fitter:
                 self.log.error("phot_data must be a list if provided. To exclude photometric data, set phot_data=[]")
             #Check that at least some data is provided
             if(len(specs)==0 and len(phots)==0):
-                self.log.error("Please provide either spectroscopic or photometric data by inputting either RA/DEC coodrinates or a list of filepaths and/or UUIDs")
+                self.log.error("Please provide either spectroscopic or photometric data by inputting either RA/DEC coodrinates or a list of filepaths and/or UUIDs. If retrieving data automatically, check that a nonzero number of images fall within the MJD range provided")
                 return
         #Get the data and put it into lists. Prevents us from retrieving these over and over again. 
         # Any files that do not open properly will be assumed to be invalid and will be skipped, but will NOT stop the program (unless it is the only file)
@@ -1421,7 +1433,7 @@ class fitter:
         #Make sure there is only one object in the segmentation map
         assert np.max(self.seg_map_data)==1, "More than one object is included in the segmentation map. Please select an object using make_map or pick_object"
         #Convert the underlying pixels to the SN image
-        sn_pixels, sn_sim, sn_map=overlap(self.seg_wcs, self.sn_wcs, self.sn_size[0], self.sn_size[1], self.pixPos, buffer, True, self.sn_data, "PRISM", self.sn_im.sca)
+        sn_pixels, sn_sim, sn_map=_overlap(self.seg_wcs, self.sn_wcs, self.sn_size[0], self.sn_size[1], self.pixPos, buffer, True, self.sn_data, "PRISM", self.sn_sca)
         self.pixPos=np.array(np.transpose(np.where(sn_map!=0)))
         self.numPix=self.pixPos.shape[0]
         #Overlap the pixel grids with pypolyclip to deal with mismatched WCS. Calculated here so they are only calculated once
@@ -1441,14 +1453,14 @@ class fitter:
         spec_pixel_list=[]
         spec_sim_list=[]
         for i in range(0, len(spec_data_list)):
-            p, s, m=overlap(self.sn_wcs, spec_wcs_list[i], spec_size_list[i][0], spec_size_list[i][1], self.pixPos, buffer, True, spec_data_list[i], spec_filt_list[i], spec_sca_list[i])
+            p, s, m=_overlap(self.sn_wcs, spec_wcs_list[i], spec_size_list[i][0], spec_size_list[i][1], self.pixPos, buffer, True, spec_data_list[i], spec_filt_list[i], spec_sca_list[i])
             spec_pixel_list.append(p)
             spec_sim_list.append(s)
         phot_pixel_list=[]
         #Photometry does not require the full simulator, but we still need the segmentation map, so we save that on its own
         phot_map_list=[]
         for i in range(0, len(phot_data_list)):
-            p, s=overlap(self.sn_wcs, phot_wcs_list[i], phot_size_list[i][0], phot_size_list[i][1], self.pixPos, buffer, False, phot_data_list[i], phot_filt_list[i], phot_sca_list[i])
+            p, s=_overlap(self.sn_wcs, phot_wcs_list[i], phot_size_list[i][0], phot_size_list[i][1], self.pixPos, buffer, False, phot_data_list[i], phot_filt_list[i], phot_sca_list[i])
             phot_map_list.append(s)
             phot_pixel_list.append(p)
         if(verbose==True):
@@ -1460,7 +1472,7 @@ class fitter:
         def log_prior(theta):
             #Lower bound on age. Must be slightly greater than zero to prevent errors in simulation. Can be set lower or higher if desired
             low_age=1e-6
-            #Lower bound on redshift to enforce physical reality
+            #Lower bound on redshift to enforce physical reality. Unlikely to be used as the PDF should prohibit this but better safe than sorry. 
             low_z=0
             use_bounds=config.value("params.bounds.use_bounds")
             #Return zero if not using bounds. Bounds age, preventing it from being less than zero, to prevent errors in the modeling code. Bounds z to be greater than zero to ensure physical plausibility
@@ -1483,7 +1495,9 @@ class fitter:
                         if(param_dict[j]=="z"):
                             if(theta[j]<low_z):
                                 return -np.inf
-                return 0.0
+                #If after checking every parameter in every pixel, they're all within bounds, return 0.0
+                if(fixed_z==True):
+                    return 0.0
             else:
                 if(one_sed==False):
                     for i in range(0, self.numPix):
@@ -1523,7 +1537,12 @@ class fitter:
                             if(theta[j]<low_z):
                                 return -np.inf
                 #If after checking every parameter in every pixel, they're all within bounds, return 0.0
-                return 0.0
+                if(fixed_z==True):
+                    return 0.0
+            #Apply the PDF for redshift after ensuring every other parameter is valid
+            if(fixed_z==False):
+                z_test=theta[-1]
+                return z_spline(z_test)    
         # Define log likelihood. Makes spectra with the input parameters, simulates an image with those spectra, and then compares that with the provided data
         # Define the probability function
         def prob_makespec(theta):
@@ -1543,9 +1562,9 @@ class fitter:
                     file_names
                 except:
                     file_names=None
-                make_SED_bc03(working_dir, one_sed, theta, plength, self.pixPos, ised_dir, csp_params, recyc, file_names)
+                _make_SED_bc03(working_dir, one_sed, theta, plength, self.pixPos, ised_dir, csp_params, recyc, file_names)
             elif sim_code=="FSPS":
-                make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, self.pixPos)
+                _make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, self.pixPos)
             #Sum likelihoods for the spectroscopy data
             sumlikely=0
             for k in range(0, len(spec_data_list)):
@@ -1556,7 +1575,7 @@ class fitter:
                 #Retrieve the simulator object we made earlier
                 test_sim=spec_sim_list[k]
                 test_pixPos=np.array(np.transpose(np.where(test_sim.segMapData!=0)))
-                translate_SED(test_pixPos, pix, one_sed, working_dir, z_fit, cosmo)
+                _translate_SED(test_pixPos, pix, one_sed, working_dir, z_fit, cosmo)
                 #Multiply the spectra and add them to the simulator
                 for q in range(0, len(test_pixPos)):
                     x=test_pixPos[q][1]
@@ -1575,7 +1594,7 @@ class fitter:
                 for i in range(0, len(mask[0])):
                     sumlikely = sumlikely + log_normal(test[mask[0][i], mask[1][i]], data[mask[0][i], mask[1][i]], error[mask[0][i], mask[1][i]])
                     if(np.isfinite(sumlikely)!=True):
-                        self.log.error("There is a likelihood value that is either infinite or NaN. If your fit fails, this is one likely cause. Check error file for unusually small errors")
+                        self.log.error("There is a likelihood value that is either infinite or NaN. If your fit fails, this is one likely cause. Check uncertainty files for unusually small values")
             #Sum likelihoods for the photometry
             for k in range(0, len(phot_data_list)):
                 data=phot_data_list[k]
@@ -1587,7 +1606,7 @@ class fitter:
                 #Get the pixel positions
                 test_pixPos=np.array(np.transpose(np.where(smap!=0)))
                 #Multiply the spectra and calculate the synthetic photometry, then compare to the data
-                translate_SED(test_pixPos, pix, one_sed, working_dir, z_fit, cosmo)
+                _translate_SED(test_pixPos, pix, one_sed, working_dir, z_fit, cosmo)
                 for q in range(0, len(test_pixPos)):
                     #Do the synthetic photometry
                     test_spec=SourceSpectrum.from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
@@ -1655,7 +1674,7 @@ class fitter:
             self.log.error("Invalid method")
             return
         if(minimum.success==False):
-            self.log.error("Optimization failed. Please examine the object returned of this function, which is the entire output of the scipy minimization, to find the issue")
+            self.log.error("Optimization failed. Please examine the object returned by this function, which is the entire output of the scipy minimization, to find the issue")
             return minimum
         if(verbose==True):
             self.log.info("Time to perform the fit: "+str(datetime.timedelta(seconds=(time.time()-start))))
@@ -1671,28 +1690,24 @@ class fitter:
         else:
             z_best=z
         if sim_code=="BC03":
-                #If these variables haven't been defined because they're not needed, use None as a placeholder
-                try:
-                    recyc
-                except:
-                    recyc=None
-                try:
-                    file_names
-                except:
-                    file_names=None
-                make_SED_bc03(working_dir, one_sed, best_fit, plength, self.pixPos, ised_dir, csp_params, recyc, file_names)
+            #If these variables haven't been defined because they're not needed, use None as a placeholder
+            try:
+                recyc
+            except:
+                recyc=None
+            try:
+                file_names
+            except:
+                file_names=None
+            _make_SED_bc03(working_dir, one_sed, best_fit, plength, self.pixPos, ised_dir, csp_params, recyc, file_names)
         elif sim_code=="FSPS":
-            make_SED_fsps(working_dir, one_sed, best_fit, param_dict, plength, sp, self.pixPos)
+            _make_SED_fsps(working_dir, one_sed, best_fit, param_dict, plength, sp, self.pixPos)
         #Add the spectra to the simulator object 
         for q in range(0, len(self.pixPos)):
-            if(one_sed==True):
-                sn_sim.sourceColl[0].seds[q]=sn_sim.sourceColl[0].seds[q].from_file(working_dir+"test.txt")
-                sn_sim.sourceColl[0].seds[q].redshift(z_best)
-            else:
-                x=self.pixPos[q][1]
-                y=self.pixPos[q][0]
-                sn_sim.sourceColl[0].seds[q]=sn_sim.sourceColl[0].seds[q].from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
-                sn_sim.sourceColl[0].seds[q].redshift(z_best)
+            x=self.pixPos[q][1]
+            y=self.pixPos[q][0]
+            sn_sim.sourceColl[0].seds[q]=sn_sim.sourceColl[0].seds[q].from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
+            sn_sim.sourceColl[0].seds[q].redshift(z_best)
         #Do the simulation
         best_im=sn_sim.project(0, "dummy")
         if(verbose==True):
@@ -1708,7 +1723,7 @@ class fitter:
                 test_sim=spec_sim_list[i]
                 test_pixPos=np.array(np.transpose(np.where(test_sim.segMapData!=0)))
                 #Multiply the spectra and add them to the simulator
-                translate_SED(test_pixPos, pix, one_sed, working_dir, z_best, cosmo, verbose=False, name="best_fit")
+                _translate_SED(test_pixPos, pix, one_sed, working_dir, z_best, cosmo, verbose=False, name="best_fit")
                 for q in range(0, len(test_pixPos)):
                     x=test_pixPos[q][1]
                     y=test_pixPos[q][0]
@@ -1728,7 +1743,7 @@ class fitter:
                 #Get the pixel positions
                 test_pixPos=np.array(np.transpose(np.where(map!=0)))
                 #Multiply the spectra and calculate the synthetic photometry, then compare to the data
-                translate_SED(test_pixPos, pix, one_sed, working_dir, z_best, cosmo, verbose=False, name="best_fit")
+                _translate_SED(test_pixPos, pix, one_sed, working_dir, z_best, cosmo, verbose=False, name="best_fit")
                 for q in range(0, len(test_pixPos)):
                     #Do the synthetic photometry
                     test_spec=SourceSpectrum.from_file(working_dir+str(x)+"_"+str(y)+"_data.txt")
