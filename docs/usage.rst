@@ -126,12 +126,14 @@ verbose (bool, optional) – choice of what to write to the log. If False, the c
 
 fixed_z (bool) - choice to use a known, fixed redshift or to use a PDF and fit for redshift. Default is True. If running locally, either the redshift or the PDF must be provided below. If running nonlocally, the redshift or PDF will be pulled automatically from the database. 
 
+cleanup (bool) - choice to preserve or remove the various files created in the fitting process. if True, deleted all .txt files and all .fits files ending with "_temp" in the working directory. Warning: this function uses os.system to run the "rm" command, meaning that the deleted files are gone forever, so make sure there's nothing in your working directory you want to keep that might get caught in the crossfire. 
+
 paths
 -----
 
 Various paths to various files
 
-working_dir (string) – the directory where all the files produced by the fit should be saved. Must end with “/”. Must already exist. 
+working_dir (string) – the directory where all the files produced by the fit should be saved. Must end with “/”. Must already exist. Ideally this directory is specific to the program and is not used for anything else. 
 
 filter_path (string) – path to the location of the filter function files. Only required if photometric data is provided. Requires all 8 filter functions to be present. 
 
