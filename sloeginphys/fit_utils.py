@@ -1,9 +1,10 @@
 import numpy as np
 from astropy.wcs import WCS
 from pypolyclip import clip_multi
+from roman_wfss.modeling.linear.WFSSImageSimulator import WFSSImageSimulator
 from roman_wfss.modeling.linear.WFSSImageSimulator_NERSC import WFSSImageSimulator_NERSC
 
-def _overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data, band, sca):
+def _overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data, band, sca, working_dir, NERSC):
     """Overlaps the pixels between two different coordinate systems"""
     naxis=(xmax, ymax)
     #Find which pixels in the data correspond to pixels in the reference image
@@ -54,8 +55,25 @@ def _overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data, band, sc
                         new_area.append(area[q])
                         pixel_list.append([x, y, new_xc, new_yc, new_area])
     if(spec==True):
-        #Make the simulator with the new segmentation map. Prevents us from simulating an entire empty image.
-        test_sim=WFSSImageSimulator_NERSC(data, data_wcs, new_seg_data, data_wcs, "PRISM", sca, xmax, ymax)
+        if(NERSC==True):
+            test_sim=WFSSImageSimulator_NERSC(data, data_wcs, new_seg_data, data_wcs, "PRISM", sca, xmax, ymax)
+        else:
+            #Make the simulator with the new segmentation map. Prevents us from simulating an entire empty image.
+            #Make a dummy datacube for initialization. Will be overwritten later. 
+            im=fits.ImageHDU(data=np.zeros((1, ymax, xmax)), name="SCI")
+            im.header["LAM000"]=0
+            test_cube=fits.HDUList([fits.PrimaryHDU(), im])
+            test_cube.writeto(working_dir+"test_cube_temp.fits", overwrite=True)
+            #Make the segmentation map as a fits file
+            seg_hdul=fits.HDULIst([fits.PrimaryHDU(), fits.ImageHDU(data=new_seg_data, header=data_wcs.to_header(), name="SCI")]) 
+            seg_hdul.writeto(working_dir+"seg_map_temp.fits")
+            #Make the image as a fits file
+            im=fits.ImageHDU(data=data, header=data_wcs.to_header(), name="SCI")
+            im.header["SCA"]=sca
+            im.header["TELESCOP"]="ROMAN"
+            im_hdul=fits.HDULIst([fits.PrimaryHDU(), im])
+            im_hdul.writeto(working_dir+"dir_im_temp.fits")
+            test_sim=WFSSImageSimulator(working_dir+"test_cube_temp.fits", working_dir+"dir_im_temp.fits", working_dir+"seg_map_temp.fits")
         return(pixel_list, test_sim, new_seg_data)
     else:
         return(pixel_list, new_seg_data)
@@ -122,23 +140,23 @@ def _make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, pixPos)
         params = theta[int(0 * plength) : int((0 + 1) * plength)]
         for j in range(0, len(param_dict)):
             sp.params[param_dict[j]] = params[j]
-            #This is kind of a cheat. tage is a parameter in sp but must also be input in making the spectrum, so here we set it with all the others, then pull it out for actually making the spectrum
-            tage=sp.params["tage"]
-            #Make the spectrum
-            spec = sp.get_spectrum(tage=tage, peraa=True)
-            spec = np.transpose(spec)
-            np.savetxt(working_dir+"test.txt", spec)
+        #This is kind of a cheat. tage is a parameter in sp but must also be input in making the spectrum, so here we set it with all the others, then pull it out for actually making the spectrum
+        tage=sp.params["tage"]
+        #Make the spectrum
+        spec = sp.get_spectrum(tage=tage, peraa=True)
+        spec = np.transpose(spec)
+        np.savetxt(working_dir+"test.txt", spec)
     else:
         for i in range(0, len(pixPos)):
             params = theta[int(i * plength) : int((i + 1) * plength)]
             for j in range(0, len(param_dict)):
                 sp.params[param_dict[j]] = params[j]
-                #This is kind of a cheat. tage is a parameter in sp but must also be input in making the spectrum, so here we set it with all the others, then pull it out for actually making the spectrum
-                tage=sp.params["tage"]
-                # Make the spectrum
-                spec = sp.get_spectrum(tage=tage, peraa=True)
-                spec = np.transpose(spec)
-                np.savetxt(working_dir+str(pixPos[i][0])+"_"+str(pixPos[i][1])+".txt", spec)
+            #This is kind of a cheat. tage is a parameter in sp but must also be input in making the spectrum, so here we set it with all the others, then pull it out for actually making the spectrum
+            tage=sp.params["tage"]
+            # Make the spectrum
+            spec = sp.get_spectrum(tage=tage, peraa=True)
+            spec = np.transpose(spec)
+            np.savetxt(working_dir+str(pixPos[i][0])+"_"+str(pixPos[i][1])+".txt", spec)
 
 def _translate_SED(test_pixPos, pix, one_sed, working_dir, z, cosmo, verbose=False, name=None):
     """Translate the SEDs made with BC03 or FSPS from the original coordinate system to another one"""

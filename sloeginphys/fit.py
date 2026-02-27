@@ -67,50 +67,99 @@ class fitter:
         else:
             self.ra=ra
             self.dec=dec
-        if(local==True): 
+        if(local==True):
             #Retrieve files
             self.dir_im=direct_image
             self.seg_map=segmap
             self.sn_im=sn_image
             #Check direct image
             try:
+                #Open and retrieve the data if the provided file is a fits file
                 dir_im_temp=fits.open(self.dir_im)
+                #Retrieve data from direct image
+                self.dir_im_data=dir_im_temp[1].data
+                self.dir_im_hdr=dir_im_temp[1].header
+                self.dir_im_band=self.dir_im_hdr["FILTER"]
+                if (self.dir_im_band not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
+                    self.log.error("Filter "+self.dir_im_band+" is not a valid filter")
+                    return
+                dir_im_temp.close()
             except:
-                self.log.error("Direct image is invalid")
-                return
+                try: 
+                    #Open and retrieve the data if the provided file is an asdf file
+                    dir_im_temp=asdf.open(self.dir_im)
+                    self.dir_im_data=dir_im_temp.search("data", type_="NDArrayType").node
+                    self.dir_im_band=dir_im_temp.search("optical_element", type_="str").node
+                    if (self.dir_im_band not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
+                        self.log.error("Filter "+self.dir_im_band+" is not a valid filter")
+                        return
+                    if(self.dir_im_data==None):
+                        self.log.error("Data not present in the file "+self.dir_im)
+                        return
+                    dir_im_temp.close()
+                except: 
+                    self.log.error("Direct image is invalid. Direct image must be an extant fits or asdf file with all relevant header keywords provided.")
+                    return
             #Check segmentation map
             try:
                 seg_map_temp=fits.open(self.seg_map)
+                #Retrieve data from the segmentation map if the provided file is a fits file
+                self.seg_map_hdr=seg_map_temp[0].header
+                self.seg_map_data=seg_map_temp[0].data
+                #Extra copy holds the original data so another RA/DEC can be used later
+                self.seg_map_data_orig=seg_map_temp[0].data
+                self.seg_wcs=WCS(self.seg_map_hdr)
+                seg_map_temp.close()
             except:
-                self.log.error("Segmentation map is invalid")
+                try: 
+                    seg_map_temp=asdf.open(self.seg_map)
+                    #Retrieve data from the segmentation map if the provided file is an asdf file
+                    self.seg_map_data=seg_map_temp.search("data", type_="NDArrayType").node
+                    #Extra copy holds the original data so another RA/DEC can be used later
+                    self.seg_map_data_orig=seg_map_temp.search("data", type_="NDArrayType").node
+                    self.seg_wcs=seg_map_temp.search("wcs", type_="WCS").node.to_fits_sip()
+                    if(self.seg_map_data==None):
+                        self.log.error("Data not present in the file "+self.seg_map)
+                        return
+                    if(self.seg_wcs==None):
+                        self.log.error("WCS not present in the file "+self.seg_map)
+                        return
+                    seg_map_temp.close()
+                except:
+                    self.log.error("Segmentation map is invalid. Segmentation map must be an extant fits or asdf file with all relevant header keywords provided.")
                 return
             #Check SN image
             try:
                 sn_im_temp=fits.open(self.sn_im)
+                #Retrieve data from the supernova image if the provided file is a fits file
+                self.sn_data=sn_im_temp[1].data
+                self.sn_wcs=WCS(sn_im_temp[1].header)
+                self.sn_size=(sn_im_temp[1].header["NAXIS1"], sn_im_temp[1].header["NAXIS2"])
+                self.sn_sca=sn_im_temp[1].header["SCA_NUM"]
+                sn_im_temp.close()
             except:
-                self.log.error("Supernova image is invalid")
+                try:
+                    sn_im_temp=asdf.open(self.sn_im)
+                    #Retrieve data from the supernova image if the provided file is an asdf file
+                    self.sn_data=sn_im_temp.search("data", type_="NDArrayType").node
+                    self.sn_wcs=sn_im_temp.search("wcs", type_="WCS").node.to_fits_sip()
+                    self.sn_size=(self.sn_wcs["NAXIS1"], self.sn_wcs["NAXIS2"])
+                    self.sn_sca=sn_im_temp.search("sca", type_="int").node
+                    if(self.sn_data==None):
+                        self.log.error("Data not present in the file "+self.sn_im)
+                        return
+                    if(self.sn_wcs==None):
+                        self.log.error("WCS not present in the file "+self.sn_im)
+                        return
+                    if(self.sn_sca==None):
+                        self.log.error("SCA not present in the file "+self.sn_im)
+                        return
+                    sn_im_temp.close()
+                except:
+                    self.log.error("Supernova image is invalid")
                 return
-            #Retrieve data from direct image
-            self.dir_im_data=dir_im_temp[1].data
-            self.dir_im_hdr=dir_im_temp[1].header
-            self.dir_im_band=self.dir_im_hdr["FILTER"]
-            if (self.dir_im_band not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
-                self.log.error("Filter "+self.dir_im_band+" is not a valid filter")
-                return
-            dir_im_temp.close()
-            #Retrieve data from the segmentation map
-            self.seg_map_hdr=seg_map_temp[0].header
-            self.seg_map_data=seg_map_temp[0].data
-            #Extra copy holds the original data so another RA/DEC can be used later
-            self.seg_map_data_orig=seg_map_temp[0].data
-            seg_map_temp.close()
-            self.seg_wcs=WCS(self.seg_map_hdr)
             #Retrieve data from the supernova image
-            self.sn_data=sn_im_temp[1].data
-            self.sn_wcs=WCS(sn_im_temp[1].header)
-            self.sn_size=(sn_im_temp[1].header["NAXIS1"], sn_im_temp[1].header["NAXIS2"])
-            self.sn_sca=sn_im_temp[1].header["SCA_NUM"]
-            sn_im_temp.close()
+            
         else:
             #Check direct image
             assert isinstance(direct_image, str), "direct_image must be the UUID of the direct image as a string"
@@ -124,15 +173,30 @@ class fitter:
             if(segmap!=None):
                 try:
                     seg_map_temp=fits.open(segmap)
+                     #Retrieve data from the segmentation map
+                    self.seg_map_hdr=seg_map_temp[0].header
+                    self.seg_map_data=seg_map_temp[0].data
+                    self.seg_map_data_orig=seg_map_temp[0].data
+                    seg_map_temp.close()
+                    self.seg_wcs=WCS(self.seg_map_hdr)
                 except:
-                    self.log.error("Segmentation map is invalid")
-                    return
-                #Retrieve data from the segmentation map
-                self.seg_map_hdr=seg_map_temp[0].header
-                self.seg_map_data=seg_map_temp[0].data
-                self.seg_map_data_orig=seg_map_temp[0].data
-                seg_map_temp.close()
-                self.seg_wcs=WCS(self.seg_map_hdr)
+                    try: 
+                        seg_map_temp=asdf.open(self.seg_map)
+                        #Retrieve data from the segmentation map if the provided file is an asdf file
+                        self.seg_map_data=seg_map_temp.search("data", type_="NDArrayType").node
+                        #Extra copy holds the original data so another RA/DEC can be used later
+                        self.seg_map_data_orig=seg_map_temp.search("data", type_="NDArrayType").node
+                        self.seg_wcs=seg_map_temp.search("wcs", type_="WCS").node.to_fits_sip()
+                        if(self.seg_map_data==None):
+                            self.log.error("Data not present in the file "+self.seg_map)
+                            return
+                        if(self.seg_wcs==None):
+                            self.log.error("WCS not present in the file "+self.seg_map)
+                            return
+                        seg_map_temp.close()
+                    except:
+                        self.log.error("Segmentation map is invalid. Segmentation map must be an extant fits or asdf file with all relevant header keywords provided.")
+                        return
             else:
                 self.seg_map=SegmentationMap.find_segmaps(provenance_tag="ou2024", process="load_ou2024_segmap", l2image_id=self.dir_im.id)[0]
                 if len(self.seg_map)==0:
@@ -291,11 +355,12 @@ class fitter:
         verbose=config.value("run.verbose")
         if(verbose!=None):
             assert isinstance(verbose, bool), "verbose must be boolean"
-        z=config.value("params.z")
-        fixed_z=config.value("params.fixed_z")
-        z_func=config.value("params.z_func")
+        z=config.value("temp.z")
+        fixed_z=config.value("run.fixed_z")
+        z_func=config.value("temp.z_func")
         working_dir=config.value("paths.working_dir")
         local=config.value("run.local")
+        cleanup=config.value("run.cleanup")
         filter_path=config.value("paths.filter_path")
         provenance_tag=config.value("temp.provenance_tag")
         spec_process=config.value("temp.spec_process")
@@ -328,10 +393,16 @@ class fitter:
             assert z>0, "z must be greater than zero"
         else:
             assert z_func!=None, "A PDF for the redshift must be provided"
+            assert z_func.shape[0]==1 or z_func.shape[0]==2, "z_func must be a 1-D or 2-D array"
+            assert z_func.dtype==float or z_func.dtype==int, "z_func may only contain floats or ints"
         if(local!=None):
             assert isinstance(local, bool), "local must be a boolean"
         else:
             local=False
+        if(cleanup!=None):
+            assert isinstance(cleanup, bool), "cleanup must be a boolean"
+        else:
+            cleanup=False
         assert working_dir != None, "A working directory must be provided"
         assert isinstance(working_dir, str), "working_dir must be a string"
         assert os.path.isdir(working_dir), "working_dir is not an existing directory. Please create the directory and try again"
@@ -691,11 +762,12 @@ class fitter:
         #Check that the configuration file is valid
         self.check_config(config_file)
         #Extract high-level parameters to make my life easier
-        z=config.value("params.z")
-        fixed_z=config.value("params.fixed_z")
-        z_func=config.value("params.z_func")
+        z=config.value("temp.z")
+        fixed_z=config.value("run.fixed_z")
+        z_func=config.value("temp.z_func")
         working_dir=config.value("paths.working_dir")
         local=config.value("run.local")
+        cleanup=config.value("run.cleanup")
         filter_path=config.value("paths.filter_path")
         provenance_tag=config.value("temp.provenance_tag")
         spec_process=config.value("temp.spec_process")
@@ -722,6 +794,10 @@ class fitter:
         save_subtracted=config.value("output.save_subtracted")
         subtracted_name=config.value("output.subtracted_name")
         #Set high level parameters
+        if(local==None):
+            local=False
+        if(cleanup==None):
+            cleanup=False
         if(mjd_min_offset==None):
             mjd_min_offset=-90
         if(mjd_max_offset==None):
@@ -759,9 +835,22 @@ class fitter:
             save_subtracted=False
         #Construct spline of the PDF if z is not fixed
         if(fixed_z==False):
-            xs=z_func[0]
-            ys=z_func[1]
-            z_spline=spi.make_splrep(xs, ys)
+            #if (local==True):
+            if(z_func.shape[0]==2):
+                xs=z_func[0]
+                ys=z_func[1]
+                z_spline=spi.make_splrep(xs, ys)
+            else:
+                #Current discussion leads me to believe that the database will actually provide a CDF. This generates the PDF from the CDF using the derivative. 
+                xs=z_func
+                ys=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+                temp_spline=spi.make_splrep(xs, ys)
+                z_spline=temp_spline.derivative()
+            #else:
+            #    Step 1: Check the catalogue of the SN for redshift. If given, make a normal. Pull hostgal ID while here. 
+            #    Step 2: Check for hostgal_properties redshift. If given, make a normal
+            #    Step 3: Check for a photo-z from phrosty. If given, make a function. Unsure of type right now. 
+            #    Step 4: Check hostgal_extdata.  If given, make a normal
         #Determine which parameters are being fit and make a dictionary of them 
         if (sim_code=="BC03"):
             # Combine parameters to make the csp_params list used later
@@ -876,6 +965,7 @@ class fitter:
                 i+=1
             if fixed_z==True:
                 param_dict[i]="z"
+                i+=1
             else: #This should be impossible as this is checked above but you never know
                 self.log.error("Invalid SFH")
                 return
@@ -1433,7 +1523,7 @@ class fitter:
         #Make sure there is only one object in the segmentation map
         assert np.max(self.seg_map_data)==1, "More than one object is included in the segmentation map. Please select an object using make_map or pick_object"
         #Convert the underlying pixels to the SN image
-        sn_pixels, sn_sim, sn_map=_overlap(self.seg_wcs, self.sn_wcs, self.sn_size[0], self.sn_size[1], self.pixPos, buffer, True, self.sn_data, "PRISM", self.sn_sca)
+        sn_pixels, sn_sim, sn_map=_overlap(self.seg_wcs, self.sn_wcs, self.sn_size[0], self.sn_size[1], self.pixPos, buffer, True, self.sn_data, "PRISM", self.sn_sca, working_dir, True)
         self.pixPos=np.array(np.transpose(np.where(sn_map!=0)))
         self.numPix=self.pixPos.shape[0]
         #Overlap the pixel grids with pypolyclip to deal with mismatched WCS. Calculated here so they are only calculated once
@@ -1453,14 +1543,14 @@ class fitter:
         spec_pixel_list=[]
         spec_sim_list=[]
         for i in range(0, len(spec_data_list)):
-            p, s, m=_overlap(self.sn_wcs, spec_wcs_list[i], spec_size_list[i][0], spec_size_list[i][1], self.pixPos, buffer, True, spec_data_list[i], spec_filt_list[i], spec_sca_list[i])
+            p, s, m=_overlap(self.sn_wcs, spec_wcs_list[i], spec_size_list[i][0], spec_size_list[i][1], self.pixPos, buffer, True, spec_data_list[i], spec_filt_list[i], spec_sca_list[i], working_dir, True)
             spec_pixel_list.append(p)
             spec_sim_list.append(s)
         phot_pixel_list=[]
         #Photometry does not require the full simulator, but we still need the segmentation map, so we save that on its own
         phot_map_list=[]
         for i in range(0, len(phot_data_list)):
-            p, s=_overlap(self.sn_wcs, phot_wcs_list[i], phot_size_list[i][0], phot_size_list[i][1], self.pixPos, buffer, False, phot_data_list[i], phot_filt_list[i], phot_sca_list[i])
+            p, s=_overlap(self.sn_wcs, phot_wcs_list[i], phot_size_list[i][0], phot_size_list[i][1], self.pixPos, buffer, False, phot_data_list[i], phot_filt_list[i], phot_sca_list[i], working_dir, True)
             phot_map_list.append(s)
             phot_pixel_list.append(p)
         if(verbose==True):
@@ -1723,7 +1813,7 @@ class fitter:
                 test_sim=spec_sim_list[i]
                 test_pixPos=np.array(np.transpose(np.where(test_sim.segMapData!=0)))
                 #Multiply the spectra and add them to the simulator
-                _translate_SED(test_pixPos, pix, one_sed, working_dir, z_best, cosmo, verbose=False, name="best_fit")
+                _translate_SED(test_pixPos, pix, one_sed, working_dir, z_best, cosmo, verbose=False, name="temp")
                 for q in range(0, len(test_pixPos)):
                     x=test_pixPos[q][1]
                     y=test_pixPos[q][0]
@@ -1799,7 +1889,7 @@ class fitter:
         if(use_bayes==False):
             return_list=[]
             if(return_fit==True):
-                return_list.append(param_dict.keys())
+                return_list.append(list(param_dict.values()))
                 return_list.append(minimum.x)
                 return_list.append(chi)
             if(save_fit==True):
@@ -1858,6 +1948,9 @@ class fitter:
                         #    hdu.writeto("best_fit_subtracted.fits", overwrite=True)
                         #else:
                         #    hdu.writeto(subtracted_name + ".fits", overwrite=True)
+            if(cleanup==True):
+                os.system("rm -f "+working_dir+"*.txt")
+                os.system("rm -f "+working_dir+"*_temp.fits")
             if(verbose==True):
                 self.log.info("Fit success!")
                 self.log.info("Total time to run: "+str(datetime.timedelta(seconds=(time.time()-big_start))))
