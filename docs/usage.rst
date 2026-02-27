@@ -17,6 +17,15 @@ one_sed: If True, each pixel is assumed to have the same spectrum, so only one s
 
 sim_code: Choice to use either BC03 (GALAXEV) or FSPS to simulate the SEDs. BC03 allows for fewer inputs and provides fewer outputs, but runs faster. FSPS runs slower, but allows a great diversity of input parameters and outputs many useful quantities. Only FSPS can fit for metallicity at this point. Note: the number of FSPS parameters to fit may also impact runtime. 
 
+Simulator Options
+=================
+
+Sloeginphys can use either BC03 (Bruzual and Charlot 2003), also known as GALAXEV, or FSPS/pyFSPS (Flexible Stellar Population Synthesis). At least one of these simulation codes must already be present and functional in the location where you are performing the fits prior to fitting any data. Note that both require a functional fortran compiler. For further information on installation and usage of these simulation codes, see their websites `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ for BC03 and `here <https://dfm.io/python-fsps/current/>`_ for FSPS. 
+
+Use of FSPS relies on the Python package pyFSPS. Follow the instructions `here <https://dfm.io/python-fsps/current/installation/>`_ to install this package. 
+
+Use of BC03 relies on an internal Python wrapper which requires that the variable $bc03 is set in your .bashrc or elsewhere. This should be done as part of setting up BC03. Follow the instructions in Section 3.1 `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ to install and set up BC03. 
+
 BC03 and FSPS behave differently in execution. Because BC03 uses a smaller number of input parameters, all parameters based on the inputs will automatically be fit for. FSPS can have an enormous number of input parameters, so you must select which ones you want to run. Further specific notes are below. 
 
 BC03: 
@@ -111,6 +120,11 @@ Common errors
 -------------
 
 Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses.   
+
+Running tests
+=============
+
+If you would like to test sloeginphys, a series of tests are provided in the tests folder. To run these tests, simply run the command "pytest (path to tests folder)". All the tests in the file "sloeginphys_test.py" must pass in order for the code to be considered operational. However, the tests in the file "simcode_test.py" are simulation code specific. The first two tests check the functionality of BC03 and the last two check FSPS. If everything in sloeginphys_test.py passed, at least one of these sets will pass, but the other may not. This can be helpful if you prefer one simulation code or the other, or if you aren't sure if one is properly set up. It is highly recommended that you run the tests prior to fitting to avoid later errors. 
 
 Configuration options
 =====================
@@ -226,7 +240,7 @@ file_names (list) – list of file names to pull SEDs from if SFH is 6.
 
 recyc (bool, optional) – choice to use gas recycling if SFH is 1 or -1. Default is False.
 
-fsps_params – non-iterable parameters for performing the FSPS simulation. Any parameters that are not set here will be set to the default based on the FSPS documentation. Only brief summary of these parameters is provided here. For more details, see FSPS documentation here. 
+fsps_params – non-iterable parameters for performing the FSPS simulation. Any parameters that are not set here will be set to the default based on the FSPS documentation. Only brief summary of these parameters is provided here. For more details, see FSPS documentation `here <https://dfm.io/python-fsps/current/stellarpop_api/#fsps.StellarPopulation.solar_metallicity>`_. 
 
 zcontinuous (int) -choice for how metallicity interpolation is performed. Default is 0.
 
@@ -278,7 +292,7 @@ min_wave_smooth (float) – minimum wavelength when smoothing spectrum. Default 
 
 max_wave_smooth (float) – maximum wavelength when smoothing spectrum. Default is 1e4. 
 
-fsps_optional – FSPS parameters that can be fit for. Any parameter left undefined here will be fit for. A value provided will fix that value for the fit. The string “default” will fix that parameter to the default value. Some of these parameters are only relevant for some of the inputs in the fsps_params category. If a parameter is not relevant based on those inputs, it will not be fit for and will be disregarded. Only a brief explanation is provided here. For more details, see FSPS documentation here. 
+fsps_optional – FSPS parameters that can be fit for. Any parameter left undefined here will be fit for. A value provided will fix that value for the fit. The string “default” will fix that parameter to the default value. Some of these parameters are only relevant for some of the inputs in the fsps_params category. If a parameter is not relevant based on those inputs, it will not be fit for and will be disregarded. Only a brief explanation is provided here. For more details, see FSPS documentation `here <https://dfm.io/python-fsps/current/stellarpop_api/#fsps.StellarPopulation.solar_metallicity>`_. 
 
 logzsol (float or "default") - metallicity in log of solar metallicity units. Only used if zcontinuous is not 0. Default is 0.0.
 
