@@ -3,6 +3,7 @@ from astropy.wcs import WCS
 from pypolyclip import clip_multi
 from roman_wfss.modeling.linear.WFSSImageSimulator import WFSSImageSimulator
 from roman_wfss.modeling.linear.WFSSImageSimulator_NERSC import WFSSImageSimulator_NERSC
+from .bc03utils import make_spec, make_csp_file, run_csp
 
 def _overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data, band, sca, working_dir, NERSC):
     """Overlaps the pixels between two different coordinate systems"""
@@ -80,31 +81,33 @@ def _overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data, band, sc
 
 def _make_SED_bc03(working_dir, one_sed, theta, plength, pixPos, ised_dir, csp_params, recyc, file_names):
     """Make an SED using BC03"""
+    dust=csp_params[3]
+    sfh=csp_params[4]
     if(one_sed==True):
         params=theta[int(0 * plength) : int((0 + 1) * plength)]
-        if(sim_code=="BC03"):
-            age_params = [params[-1]]
-            sfh_params = list(params[:-1])
-            spec_name = "test"
-            csp_name = working_dir + "param.txt"
-            # Make the spectra
-            if dust == False:
-                if sfh == 1 or sfh == -1:
-                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, recyc=recyc, delete_in=True, full_name=working_dir+"test.txt")
-                elif sfh == 6:
-                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names], age_params, delete_in=True, full_name=working_dir+"test.txt")
-                else:
-                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, delete_in=True, full_name=working_dir+"test.txt")
+        age_params = [params[-1]]
+        sfh_params = list(params[:-1])
+        spec_name = "test"
+        csp_name = working_dir + "param.txt"
+        # Make the spectra
+        if dust == False:
+            if sfh == 1 or sfh == -1:
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, recyc=recyc, delete_in=True, full_name=working_dir+"test.txt")
+            elif sfh == 6:
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names], age_params, delete_in=True, full_name=working_dir+"test.txt")
             else:
-                dust_params = list(sfh_params[-2:])
-                sfh_params = list(sfh_params[:-2])
-                if sfh == 1 or sfh == -1:
-                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, recyc=recyc,delete_in=True, full_name=working_dir+"test.txt")
-                elif sfh == 6:
-                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names], age_params, dust_params=dust_params, delete_in=True, full_name=working_dir+"test.txt")
-                else:
-                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, delete_in=True, full_name=working_dir+"test.txt")
-            
+                make_csp_file(ised_dir, csp_params[0], csp_params[1], csp_params[2], dust, sfh, spec_name, csp_name)
+                run_csp(working_dir, csp_name)
+                #make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, delete_in=True, full_name=working_dir+"test.txt")
+        else:
+            dust_params = list(sfh_params[-2:])
+            sfh_params = list(sfh_params[:-2])
+            if sfh == 1 or sfh == -1:
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, recyc=recyc,delete_in=True, full_name=working_dir+"test.txt")
+            elif sfh == 6:
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names], age_params, dust_params=dust_params, delete_in=True, full_name=working_dir+"test.txt")
+            else:
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, delete_in=True, full_name=working_dir+"test.txt")
     else:
         for i in range(0, len(pixPos)):
             params = theta[int(i * plength) : int((i + 1) * plength)]

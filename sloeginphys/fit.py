@@ -144,7 +144,8 @@ class fitter:
                     self.sn_data=sn_im_temp.search("data", type_="NDArrayType").node
                     self.sn_wcs=sn_im_temp.search("wcs", type_="WCS").node.to_fits_sip()
                     self.sn_size=(self.sn_wcs["NAXIS1"], self.sn_wcs["NAXIS2"])
-                    self.sn_sca=sn_im_temp.search("sca", type_="int").node
+                    #This takes the detector chip and turns it into a number we'll need later
+                    self.sn_sca=int(file.search("detector", type_="str").node[-2:])
                     if(self.sn_data==None):
                         self.log.error("Data not present in the file "+self.sn_im)
                         return
@@ -343,7 +344,8 @@ class fitter:
             Path to the location of the configuration file to test
         Returns
         -------
-        None; fails with an error message if the configuration file is not valid
+        valid: bool
+            Returns only if the file is valid and is True
         """
         #Check file type
         temp=config_file.split(".")
@@ -722,6 +724,7 @@ class fitter:
                     assert isinstance(config.value("params.bounds."+b)[0], float) or isinstance(config.value("params.bounds."+b)[0], int), "Lower bound on "+b+" must be a float or int"
                     assert isinstance(config.value("params.bounds."+b)[1], float) or isinstance(config.value("params.bounds."+b)[1], int), "Upper bound on "+b+" must be a float or int"
                     assert config.value("params.bounds."+b)[0]<config.value("params.bounds."+b)[1], "Lower bound on "+b+" must be less than upper bound"
+        return True
 
     
     def fit(self, theta, config_file, spec_data=None, phot_data=None):
@@ -853,6 +856,15 @@ class fitter:
             #    Step 4: Check hostgal_extdata.  If given, make a normal
         #Determine which parameters are being fit and make a dictionary of them 
         if (sim_code=="BC03"):
+            # Retrieve fixed parameters and check that all needed parameters have been provided
+            ised_dir = config.value("paths.ised_dir")
+            lib = config.value("params.bc03_params.library")
+            metallicity = config.value("params.bc03_params.metallicity")
+            imf = config.value("params.bc03_params.imf")
+            sfh = config.value("params.bc03_params.sfh")
+            dust = config.value("params.bc03_params.dust")
+            recyc = config.value("params.bc03_params.recyc")
+            file_names = config.value("params.bc03_params.file_names")
             # Combine parameters to make the csp_params list used later
             csp_params = [lib, metallicity, imf, dust, sfh]
             # Check theta length
@@ -906,7 +918,7 @@ class fitter:
             #Creates parameter dictionary for later use and a dictionary to pass to bc03utils
             param_dict={}
             i=0
-            if (sfh==0 or sfh==6):
+            if sfh==0 or sfh==6:
                 if(dust==True):
                     param_dict[i]="mu"
                     i+=1
@@ -963,12 +975,12 @@ class fitter:
                     i+=1
                 param_dict[i]="age"
                 i+=1
-            if fixed_z==True:
-                param_dict[i]="z"
-                i+=1
             else: #This should be impossible as this is checked above but you never know
                 self.log.error("Invalid SFH")
                 return
+            if fixed_z==False:
+                param_dict[i]="z"
+                i+=1
         elif sim_code=="FSPS":
             if (config.value("paths.sps_home")) != None:
                 os.environ["SPS_HOME"] = config.value("paths.sps_home")
@@ -1876,7 +1888,7 @@ class fitter:
                         data[y, x]=best_fit[count]
                     else:
                         data[y, x]=best_fit[int((l*plength)+count)]
-                new_header=self.sn_wcs.to_header()
+                new_header=self.sn_wcs.to_header(relax=True)
                 new_header["PROPERTY"]=k
                 new_header["CHI2"]=chi
                 new_header["REDSHIFT"]=z_best
