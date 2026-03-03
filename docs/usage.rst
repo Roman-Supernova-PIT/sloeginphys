@@ -24,7 +24,7 @@ Sloeginphys can use either BC03 (Bruzual and Charlot 2003), also known as GALAXE
 
 Use of FSPS relies on the Python package pyFSPS. Follow the instructions `here <https://dfm.io/python-fsps/current/installation/>`_ to install this package. 
 
-Use of BC03 relies on an internal Python wrapper which requires that the variable $bc03 is set in your .bashrc or elsewhere. This should be done as part of setting up BC03. Follow the instructions in Section 3.1 `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ to install and set up BC03. 
+Use of BC03 relies on an internal Python wrapper which requires that the variable $bc03 is set in your .bash_profile or elsewhere. This should be done as part of setting up BC03. Follow the instructions in Section 3.1 `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ to install and set up BC03. I also recommend adding the command "source /path/to/bc_bash" to your .bash_profile.
 
 BC03 and FSPS behave differently in execution. Because BC03 uses a smaller number of input parameters, all parameters based on the inputs will automatically be fit for. FSPS can have an enormous number of input parameters, so you must select which ones you want to run. Further specific notes are below. 
 
@@ -119,12 +119,20 @@ For the most part, error messages produced by the code will be written to the lo
 Common errors
 -------------
 
-Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses.   
+Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses. 
+
 
 Running tests
 =============
 
 If you would like to test sloeginphys, a series of tests are provided in the tests folder. To run these tests, simply run the command "pytest (path to tests folder)". All the tests in the file "sloeginphys_test.py" must pass in order for the code to be considered operational. However, the tests in the file "simcode_test.py" are simulation code specific. The first two tests check the functionality of BC03 and the last two check FSPS. If everything in sloeginphys_test.py passed, at least one of these sets will pass, but the other may not. This can be helpful if you prefer one simulation code or the other, or if you aren't sure if one is properly set up. It is highly recommended that you run the tests prior to fitting to avoid later errors. 
+
+
+Known bugs
+==========
+
+When running in a Jupyter notebook, the program does not always recognize environment-level variables, which are important for many aspects of sloeginphys. It is possible to set these within the notebook using "os.environ" but obviously this is not a long term solution. Some errors that result from this include: an error saying that no default configuration file has been provided when using snappl; an error in the bc03 log file asking the user to set the standard filters; a failure to import FSPS. If any of these occur, try setting the relevant variable in the notebook, and if that fixes the problem then at least you know what it is. 
+
 
 Configuration options
 =====================
