@@ -20,11 +20,18 @@ sim_code: Choice to use either BC03 (GALAXEV) or FSPS to simulate the SEDs. BC03
 Simulator Options
 =================
 
-Sloeginphys can use either BC03 (Bruzual and Charlot 2003), also known as GALAXEV, or FSPS/pyFSPS (Flexible Stellar Population Synthesis). At least one of these simulation codes must already be present and functional in the location where you are performing the fits prior to fitting any data. Note that both require a functional fortran compiler. For further information on installation and usage of these simulation codes, see their websites `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ for BC03 and `here <https://dfm.io/python-fsps/current/>`_ for FSPS. 
+Sloeginphys can use either BC03 (Bruzual and Charlot 2003), also known as GALAXEV, or FSPS/pyFSPS (Flexible Stellar Population Synthesis). At least one of these simulation codes must already be present and functional in the location where you are performing the fits prior to fitting any data. Note that both require a functional fortran compiler. For further information on installation and usage of these simulation codes, see their websites `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ for BC03 and `here <https://dfm.io/python-fsps/current/>`_ for FSPS. I have successfully implemented both on NERSC as well as my personal computer (a MacBook Pro), so either should be a viable option. 
 
-Use of FSPS relies on the Python package pyFSPS. Follow the instructions `here <https://dfm.io/python-fsps/current/installation/>`_ to install this package. 
+Use of FSPS relies on the Python package pyFSPS. Follow the instructions `here <https://dfm.io/python-fsps/current/installation/>`_ to install this package. It also requires that the variable SPS_HOME is set somewhere. You can add this to your .bash_profile or .bashrc, set it in the configuration file when running the fit, or add it to the source code itself. If you are comfortable poking around in the source code, the file fit.py contains the following two lines of code at the beginning: 
 
-Use of BC03 relies on an internal Python wrapper which requires that the variable $bc03 is set in your .bash_profile or elsewhere. This should be done as part of setting up BC03. Follow the instructions in Section 3.1 `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ to install and set up BC03. I also recommend adding the command "source /path/to/bc_bash" to your .bash_profile.
+.. code-block:: console
+
+    $ #os.environ["SPS_HOME"]="/path/to/SPS_HOME/"
+    $ import fsps
+
+You can uncomment the first line, set "/path/to/SPS_HOME/" to your SPS_HOME, and run the code that way. You will have to reinstall the code if you choose to set SPS_HOME this way. 
+
+Use of BC03 relies on an internal Python wrapper which requires that the variable $bc03 is set in your .bash_profile or elsewhere. This should be done as part of setting up BC03. Follow the instructions in Section 3.1 `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ to install and set up BC03. If you are using bash instead of cshell, replace "setenv" with "export" and replace ".bc_cshrc" with ".bc_bash". I also recommend adding the command "source /path/to/.bc_bash" (or "source /path/to/.bc_cshrc if using cshell) to your .bash_profile. This will set a variety of other environmental variables BC03 requires to run. If BC03 does not seem to be generating spectra and the file "bc03_logfile.txt" contains a line like, "Please set the default filters", run the file .bc_bash and try again. 
 
 BC03 and FSPS behave differently in execution. Because BC03 uses a smaller number of input parameters, all parameters based on the inputs will automatically be fit for. FSPS can have an enormous number of input parameters, so you must select which ones you want to run. Further specific notes are below. 
 
