@@ -26,8 +26,8 @@ Use of FSPS relies on the Python package pyFSPS. Follow the instructions `here <
 
 .. code-block:: console
 
-    $ #os.environ["SPS_HOME"]="/path/to/SPS_HOME/"
-    $ import fsps
+    #os.environ["SPS_HOME"]="/path/to/SPS_HOME/"
+    import fsps
 
 You can uncomment the first line, set "/path/to/SPS_HOME/" to your SPS_HOME, and run the code that way. You will have to reinstall the code if you choose to set SPS_HOME this way. 
 
