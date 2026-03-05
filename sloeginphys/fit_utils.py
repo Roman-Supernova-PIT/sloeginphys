@@ -151,7 +151,7 @@ def _make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, pixPos,
         spec = np.transpose(spec)
         np.savetxt(working_dir+"test.txt", spec)
     else:
-        def worker():
+        def worker(i):
             # Make the spectrum
             spec = sp.get_spectrum(tage=tage, peraa=True)
             spec = np.transpose(spec)
@@ -163,7 +163,7 @@ def _make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, pixPos,
                     sp.params[param_dict[j]] = params[j]
                 #This is kind of a cheat. tage is a parameter in sp but must also be input in making the spectrum, so here we set it with all the others, then pull it out for actually making the spectrum
                 tage=sp.params["tage"]
-                executor.submit(worker)
+                executor.submit(worker, i)
 
 
 def _translate_SED(test_pixPos, pix, one_sed, working_dir, z, cosmo, verbose=False, name=None):

@@ -1709,7 +1709,6 @@ class fitter:
             else:
                 z_fit=z
             #Simulate the spectra for the underlying pixel grid, using the original segmentation map
-            # TODO: Implement multithreading to speed up the process
             if sim_code=="BC03":
                 #If these variables haven't been defined because they're not needed, use None as a placeholder
                 try:
@@ -2005,8 +2004,14 @@ class fitter:
                         #else:
                         #    hdu.writeto(subtracted_name + ".fits", overwrite=True)
             if(cleanup==True):
+                #Remove the files that were made in the fitting process. 
                 os.system("rm -f "+working_dir+"*.txt")
                 os.system("rm -f "+working_dir+"*_temp.fits")
+                os.system("rm -f "+working_dir+"test*.[123456789]*")
+                os.system("rm -f "+working_dir+"fort*")
+                os.system("rm -f "+working_dir+"*.tmp")
+                os.system("rm -f "+working_dir+"test.*ed")
+                os.system("rm -f "+working_dir+"bc03.rm")
             if(verbose==True):
                 self.log.info("Fit success!")
                 self.log.info("Total time to run: "+str(datetime.timedelta(seconds=(time.time()-big_start))))
