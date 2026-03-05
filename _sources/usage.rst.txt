@@ -5,7 +5,7 @@ Usage
 Fitter: Physically modeling host galaxies
 =========================================
 
-The fitter object uses spectroscopy and photometry of a host galaxy before a supernova to physically model the host. This can be used to subtract the host spectrum from the supernova, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting. An example workflow in the form of a jupyter notebook is included here. 
+The fitter object uses spectroscopy and photometry of a host galaxy before a supernova to physically model the host. This can be used to subtract the host spectrum from the supernova spectrum, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting. An example workflow in the form of a jupyter notebook is included in the examples folder. 
 
 Some choices made when performing the fit will decrease the time cost but also decrease the precision and accuracy. Other choices will do the opposite—increasing time while also increasing precision and accuracy. These choices are as follows:
 
@@ -13,15 +13,17 @@ method: The frequentist method to use when running the initial fit. Some choices
 
 use_bayes: If True, the full Bayesian fit will provide a more complete exploration of the parameter space and give a better uncertainty estimation. This can take a lot of time. If False, only the frequentist fit results are returned but the function runs much faster. Note that right now use_bayes=True is NOT supported. 
 
-one_sed: If True, each pixel is assumed to have the same spectrum, so only one simulation is performed in each pass. This saves time, especially in cases where the host galaxy covers a large number of pixels, but means that local variations in the galaxy are not accounted for. If False, each pixel is assigned a unique SED. This requires more simulations to be run, but allows the galaxy to vary more between locations. 
+one_sed: If True, each pixel is assumed to have the same spectrum, so only one simulation is performed in each pass. This saves time, especially in cases where the host galaxy covers a large number of pixels, but means that local variations in the galaxy are not accounted for. If False, each pixel is assigned a unique SED. This requires more simulations to be run, but allows the galaxy to vary more between locations. The use of multithreading has decreased the amount of time to generate the unique SEDs but with large galaxies or if running on a local machine with a small number of cores this could still be a bottleneck. 
 
-sim_code: Choice to use either BC03 or FSPS to simulate the SEDs. BC03 allows for fewer inputs and provides fewer outputs, but runs much faster. FSPS runs slower, but allows a great diversity of input parameters and outputs many useful quantities. Only FSPS can fit for metallicity at this point. Note: the number of FSPS parameters to fit may also impact runtime. 
+sim_code: Choice to use either BC03 (GALAXEV) or FSPS to simulate the SEDs. BC03 allows for fewer inputs and provides fewer outputs, but runs faster. FSPS runs slower, but allows a great diversity of input parameters and outputs many useful quantities. Only FSPS can fit for metallicity at this point. Note: the number of FSPS parameters to fit may also impact runtime. 
+
+Simulator Options
 
 BC03 and FSPS behave differently in execution. Because BC03 uses a smaller number of input parameters, all parameters based on the inputs will automatically be fit for. FSPS can have an enormous number of input parameters, so you must select which ones you want to run. Further specific notes are below. 
 
 BC03: 
 
-* For SFH1 or -1, ensure gas recycling is set and that epsilon is included in the initial guess. 
+* For SFH 1 or -1, ensure gas recycling is set and that epsilon is included in the initial guess. 
 * For SFH 6, file names cannot be iterated over. In general this SED choice is not recommended. 
 * SFH 7 is not currently supported. 
 * Right now, the command line outputs for BC03 are redirected into a log file named bc03_logfile.txt. This file will be saved in your working directory if you want to read it. 
@@ -36,7 +38,7 @@ FSPS:
 The Fitter object
 =================
 
-The “fitter” object is the object that will perform the fitting. Its inputs are related to the host galaxy desired as the final output of the simulation. For example, if the supernova was first detected in image1.asdf,  the initial inputs for the fitter object should be related to image1.asdf. Fitter takes in the direct photometric image (not the spectroscopy image) of the discovery. When initialized, fitter creates a simulator object for this direct image,  finds the corresponding segmentation map, and retrieves data from the segmentation map that will be useful later. If direct image is not valid or there is no matching segmentation map, the object will not be created. The RA and DEC of the object to be fit can also be given here or added later. The spectrum image containing the supernova must also be provided. 
+The “fitter” object is the object that will perform the fitting. Its inputs are related to the host galaxy desired as the final output of the simulation. For example, if the supernova was first detected in image1.asdf,  the initial inputs for the fitter object should be related to image1.asdf. Fitter takes in the spectrum image containing the supernova as well as a direct photometric image with a corresponding segmentation map. When initialized, fitter retrieves the information it needs from these images, finds the corresponding segmentation map for the direct image, and retrieves data from the segmentation map that will be useful later. If direct image is not valid or there is no matching segmentation map, the object will not be created. The RA and DEC of the object to be fit can also be given here or added later. Keep in mind that the RA and DEC may need to refer to the host galaxy instead of the supernova if the supernova is at a high offset from its host.  
 
 Fitter utility functions
 ========================
@@ -63,15 +65,17 @@ make_map(ra, dec)
 
 This function combines get_ID_ad and pick_object. If RA and DEC were provided at initialization, they do not need to be given again here. If RA and DEC were provided and are also input in this function, the RA and DEC input in the function will override the RA and DEC from initialization. 
 
-The fit function
-================
+check_config(config_file)
+-------------------------
 
-This is the primary function of the object that performs the fit. It requires as input the data that should be used in the fit, an initial guess, and a configuration file. Its outputs are configurable and include the parameters of the best fit, the simulated best fit image, and the simulated best fit image subtracted from the image containing the supernova. It can either automatically retrieve all data from the Roman database containing given coordinates with certain criteria or use only a provided list of files or image IDs. It can also fit using files in a local directory or personal machine. 
+This function checks a configuration file to ensure the file is valid. It performs various type checks, limit checks, and others. If the file is not valid, it will return an assertion error with details on the problem parameter and what the parameter should be. This function is run as part of the fit function, but can also be run on any given configuration file if you want to check a file before running. 
+
+The fit function
 
 Input data 
 ----------
 
-The input data is divided in spectroscopic and photometric data. If using the NERSC database, data can be pulled automatically based on coordinates and date, or specifically using a list of file paths and/or UUIDs. If using local data, each can be provided as a path to the files in the form of a string or as a list of strings that are complete paths to the desired files. Set to “None” if not using this type of data for local machines. The program will not proceed if no valid data is provided. Note that using “local” will assume that the provided files are in fits format. 
+The input data is divided in spectroscopic and photometric data. If using the NERSC database, data can be pulled automatically based on coordinates and date, or specifically using a list of file paths and/or UUIDs. If using local data, each can be provided as a path to the files in the form of a string or as a list of strings that are complete paths to the desired files. Set to an empty list ([]) or None if not using this type of data for local machines, and an empty list for nonlocal data. The program will not proceed if no valid data is provided. Note that files must be in fits or asdf format when running locally. 
 
 Initial guess
 -------------
@@ -81,7 +85,7 @@ The initial guess is a vector containing initial guesses for the desired fit par
 Configuration file
 ------------------
 
-The configuration file contains all the information needed to perform the fit. As much as possible, the function will ensure these parameters are valid and prevent the program from proceeding if they are not. It will also log an error stating which parameter is incorrect. An example configuration file is provided [here]. More details on the parameter options are also given below. 
+The configuration file contains all the information needed to perform the fit. As much as possible, the function will ensure these parameters are valid and prevent the program from proceeding if they are not. It will also log an error stating which parameter is incorrect. An example configuration file is provided in the examples folder. More details on the parameter options are also given below. 
 
 Timing
 ------
@@ -105,7 +109,10 @@ For the most part, error messages produced by the code will be written to the lo
 Common errors
 -------------
 
-Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses.   
+Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses. 
+
+
+Running tests
 
 Configuration options
 =====================
@@ -119,12 +126,16 @@ local (bool) – choice to use local data or pull from the database. If True, pr
 
 verbose (bool, optional) – choice of what to write to the log. If False, the code runs without saying much. If True, states what is being done and times certain operations that may take longer, as well as providing a total runtime. Can be used to spot the point of a failure or figure out which part is taking mor time than it should. 
 
+fixed_z (bool) - choice to use a known, fixed redshift or to use a PDF and fit for redshift. Default is True. If running locally, either the redshift or the PDF must be provided below. If running nonlocally, the redshift or PDF will be pulled automatically from the database. 
+
+cleanup (bool) - choice to preserve or remove the various files created in the fitting process. if True, deleted all .txt files and all .fits files ending with "_temp" in the working directory. Warning: this function uses os.system to run the "rm" command, meaning that the deleted files are gone forever, so make sure there's nothing in your working directory you want to keep that might get caught in the crossfire. 
+
 paths
 -----
 
 Various paths to various files
 
-working_dir (string) – the directory where all the files produced by the fit should be saved. Must end with “/”. Must already exist. 
+working_dir (string) – the directory where all the files produced by the fit should be saved. Must end with “/”. Must already exist. Ideally this directory is specific to the program and is not used for anything else. 
 
 filter_path (string) – path to the location of the filter function files. Only required if photometric data is provided. Requires all 8 filter functions to be present. 
 
@@ -162,7 +173,9 @@ temp
 
 Properties that will eventually be pulled from the database or hard-coded in. 
 
-z (float) – the redshift of the object, NOT metallicity. This is required to run the fit and must be greater than zero. It is currently retrieved from the truth tables
+z (float) – the redshift of the object, NOT metallicity. This must be greater than zero. Eventually it will be pulled from the database if fixed_z is True. 
+
+z_func (array) - the PDF of the redshift if fitting for redshift. Current input format is a 2-D array with the first dimension being the list of redshift values and the second being the list of corresponding probabilities. I am given to understand that this may be pulled from the database as just a 1-D array of redshifts so the format is liable to change. 
 
 mjd_disco (float) – discovery date of the SN, currently retrieved from truth tables
 
@@ -172,14 +185,25 @@ spec_process (string) – the process to use for spectra if automatically retrie
 
 phot_process (string) – the process to use for photometry if automatically retrieving data
 
+local
+-----
+Parameters that will only be used in local execution. If running non-locally, these will be ignored. 
+
+z (float) - the redshift of the object, NOT metallicity. This must be greater than zero.
+
+z_func (array) - the PDF of the redshift if fixed_z is False. May be provided as a 1-D or 2-D array. The following inputs are permitted:
+    2-D array: of the form [[redshift], [probability]], for example [[0.1, 0.2, 0.3], [0.1, 0.5, 0.1]]. This will be turned into a spline and used as the prior on redshift. 
+    1-D array with length 10: of the form [redshift]. These numbers will be treated as a CDF, with each value representing the next 10%. For example, if the first value is 0.4, sloeginphys will create a CDF with 10% at z=0.4. This will be turned into a spline, then into a PDF, which will be used as the prior on redshfit. 
+    1-D array with length 2: of the form [mu, sigma]. Sloeginphys will generate a normal with the given mean and standard deviation and use that as the prior on redshift. 
+
 params
 ------
 
 Actual parameters of the fit. These will be included in the provenance. 
 
-mjd_min_offset (float) – lowest MJD offset from discovery to use if automatically retrieving data. Default is 90, i.e. no images will be pulled more than 90 days before discovery 
+mjd_min_offset (float) – lowest MJD offset from discovery to use if automatically retrieving data. Default is -90, i.e. no images will be pulled more than 90 days before discovery 
 
-mjd_max _offset (float) – highest MJD offset from discovery to use if automatically retrieving data. Default is 30, i.e. no images will be pulled less than 30 days before discovery
+mjd_max _offset (float) – highest MJD offset from discovery to use if automatically retrieving data. Default is -30, i.e. no images will be pulled less than 30 days before discovery
 
 method (string, optional) – optimization method to use for the initial fit. Allows all methods in scipy.optimize.least_squares and all objects in scipy.optimize.minimize that do not require a callable Jacobian. Default is least_squares with the trf method, which is fast and reliable. 
 
@@ -215,7 +239,7 @@ file_names (list) – list of file names to pull SEDs from if SFH is 6.
 
 recyc (bool, optional) – choice to use gas recycling if SFH is 1 or -1. Default is False.
 
-fsps_params – non-iterable parameters for performing the FSPS simulation. Any parameters that are not set here will be set to the default based on the FSPS documentation. Only brief summary of these parameters is provided here. For more details, see FSPS documentation here. 
+fsps_params – non-iterable parameters for performing the FSPS simulation. Any parameters that are not set here will be set to the default based on the FSPS documentation. Only brief summary of these parameters is provided here. For more details, see FSPS documentation `here <https://dfm.io/python-fsps/current/stellarpop_api/#fsps.StellarPopulation.solar_metallicity>`_. 
 
 zcontinuous (int) -choice for how metallicity interpolation is performed. Default is 0.
 
@@ -267,7 +291,7 @@ min_wave_smooth (float) – minimum wavelength when smoothing spectrum. Default 
 
 max_wave_smooth (float) – maximum wavelength when smoothing spectrum. Default is 1e4. 
 
-fsps_optional – FSPS parameters that can be fit for. Any parameter left undefined here will be fit for. A value provided will fix that value for the fit. The string “default” will fix that parameter to the default value. Some of these parameters are only relevant for some of the inputs in the fsps_params category. If a parameter is not relevant based on those inputs, it will not be fit for and will be disregarded. Only a brief explanation is provided here. For more details, see FSPS documentation here. 
+fsps_optional – FSPS parameters that can be fit for. Any parameter left undefined here will be fit for. A value provided will fix that value for the fit. The string “default” will fix that parameter to the default value. Some of these parameters are only relevant for some of the inputs in the fsps_params category. If a parameter is not relevant based on those inputs, it will not be fit for and will be disregarded. Only a brief explanation is provided here. For more details, see FSPS documentation `here <https://dfm.io/python-fsps/current/stellarpop_api/#fsps.StellarPopulation.solar_metallicity>`_. 
 
 logzsol (float or "default") - metallicity in log of solar metallicity units. Only used if zcontinuous is not 0. Default is 0.0.
 
