@@ -1,39 +1,44 @@
 __all__=["fitter"]
 
+import os
+import glob
+import time
+import datetime
+import inspect
 import numpy as np
+import multiprocessing
+
+from scipy.optimize import least_squares, minimize
+import scipy.interpolate as spi
+
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.cosmology import FlatLambdaCDM
 from astropy.coordinates import SkyCoord
 from astropy import units as u
-from roman_wfss.modeling.linear import WFSSImageSimulator_NERSC
-from .bc03utils import make_spec
-from .fit_utils import _overlap, _make_SED_bc03, _make_SED_fsps, _translate_SED
-from scipy.optimize import least_squares, minimize
+
 from synphot import SpectralElement, Observation, SourceSpectrum
+from pypolyclip import clip_multi
+
 from snappl.logger import SNLogger
 from snappl.config import Config
 from snappl.image import Image
 from snappl.segmap import SegmentationMap
 from snappl.dbclient import SNPITDBClient
-from pypolyclip import clip_multi
-import os
-import glob
-import time
-import datetime
-import scipy.interpolate as spi
+
+from roman_wfss.modeling.linear import WFSSImageSimulator_NERSC
+
+from .bc03utils import make_spec
+from .fit_utils import _overlap, _make_SED_bc03, _make_SED_fsps, _translate_SED
+
 os.environ["SPS_HOME"] = "/global/u1/a/aisaacs/FSPS/"
 try:
     import fsps
 except:
     print("pyFSPS not installed or SPS_HOME directory not configured. Set SPS_HOME in your environment or sps_home in the configuration file if you want to use FSPS. Otherwise, only BC03 may be used in fitting.")
-#try:
-#    import emcee
-#except:
-#    print("emcee not installed. Cannot use Bayesian statistics in fitting.")
 
 class fitter:
-    def __init__(self, direct_image, sn_image, local=False, segmap=None, ra=None, dec=None):
+    def __init__(self, direct_image, sn_image, local=False, segmap=None, sn_id=None, ra=None, dec=None):
         """Initialize the object
         Parameters
         ----------
@@ -45,6 +50,7 @@ class fitter:
             Whether to run locally (pulling files from your own machine or local directories) or non-locally (pulling information from the Roman database). Default is False, meaning files will be pulled from the Roman database
         segmap: 2d array or string, optional 
             If local, this is required, and is the path to the segmentation map corresponding to the direct image. If non-local, this is NOT required and SHOULD be pulled automatically, but CAN be provided for testing or other unusual circumstances
+        sn: UUID of the supernova/transient of interest. May be provided instead of RA and DEC. 
         ra: float, optional
             Right ascension of the object of interest, e.g. the host galaxy. Can also be added later
         dec: float, optional 
@@ -55,6 +61,11 @@ class fitter:
         #Create log
         self.log=SNLogger()
         assert isinstance(local, bool), "local must be boolean"
+        #TODO: Check the database for the SN, and retrieve the RA and DEC. 
+        #if (sn_id!=None):
+        #    self.sn_id=sn_id
+        #    Retrieve SN from database
+        #    Get RA and DEC and save them
         #Saves RA and DEC if provided and if valid
         if(ra!=None and dec!=None):
             assert isinstance(ra, float), "RA must be float"
@@ -72,6 +83,11 @@ class fitter:
             self.dir_im=direct_image
             self.seg_map=segmap
             self.sn_im=sn_image
+            #Retrieve schema files. This is only relevant for asdf files
+            package_dir=os.path.dirname(inspect.getfile(sloeginphys))
+            dir_schema=package_dir+"/data/roman_schema_direct.yaml"
+            seg_schema=package_dir+"/data/roman_schema_segmap.yaml"
+            sn_schema=package_dir+"/data/roman_schema_sn.yaml"
             #Check direct image
             try:
                 #Open and retrieve the data if the provided file is a fits file
@@ -87,14 +103,11 @@ class fitter:
             except:
                 try: 
                     #Open and retrieve the data if the provided file is an asdf file
-                    dir_im_temp=asdf.open(self.dir_im)
+                    dir_im_temp=asdf.open(self.dir_im, custom_schema=dir_schema)
                     self.dir_im_data=dir_im_temp.search("data", type_="NDArrayType").node
                     self.dir_im_band=dir_im_temp.search("optical_element", type_="str").node
                     if (self.dir_im_band not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
                         self.log.error("Filter "+self.dir_im_band+" is not a valid filter")
-                        return
-                    if(self.dir_im_data==None):
-                        self.log.error("Data not present in the file "+self.dir_im)
                         return
                     dir_im_temp.close()
                 except: 
@@ -112,18 +125,12 @@ class fitter:
                 seg_map_temp.close()
             except:
                 try: 
-                    seg_map_temp=asdf.open(self.seg_map)
+                    seg_map_temp=asdf.open(self.seg_map, custom_schema=seg_schema)
                     #Retrieve data from the segmentation map if the provided file is an asdf file
                     self.seg_map_data=seg_map_temp.search("data", type_="NDArrayType").node
                     #Extra copy holds the original data so another RA/DEC can be used later
                     self.seg_map_data_orig=seg_map_temp.search("data", type_="NDArrayType").node
                     self.seg_wcs=seg_map_temp.search("wcs", type_="WCS").node.to_fits_sip()
-                    if(self.seg_map_data==None):
-                        self.log.error("Data not present in the file "+self.seg_map)
-                        return
-                    if(self.seg_wcs==None):
-                        self.log.error("WCS not present in the file "+self.seg_map)
-                        return
                     seg_map_temp.close()
                 except:
                     self.log.error("Segmentation map is invalid. Segmentation map must be an extant fits or asdf file with all relevant header keywords provided.")
@@ -139,22 +146,13 @@ class fitter:
                 sn_im_temp.close()
             except:
                 try:
-                    sn_im_temp=asdf.open(self.sn_im)
+                    sn_im_temp=asdf.open(self.sn_im, custom_schema=sn_schema)
                     #Retrieve data from the supernova image if the provided file is an asdf file
                     self.sn_data=sn_im_temp.search("data", type_="NDArrayType").node
-                    self.sn_wcs=sn_im_temp.search("wcs", type_="WCS").node.to_fits_sip()
+                    self.sn_wcs=WCS(sn_im_temp.search("wcs", type_="WCS").node.to_fits_sip())
                     self.sn_size=(self.sn_wcs["NAXIS1"], self.sn_wcs["NAXIS2"])
                     #This takes the detector chip and turns it into a number we'll need later
                     self.sn_sca=int(file.search("detector", type_="str").node[-2:])
-                    if(self.sn_data==None):
-                        self.log.error("Data not present in the file "+self.sn_im)
-                        return
-                    if(self.sn_wcs==None):
-                        self.log.error("WCS not present in the file "+self.sn_im)
-                        return
-                    if(self.sn_sca==None):
-                        self.log.error("SCA not present in the file "+self.sn_im)
-                        return
                     sn_im_temp.close()
                 except:
                     self.log.error("Supernova image is invalid")
@@ -336,6 +334,29 @@ class fitter:
                     self.ra=ra
                     self.dec=dec
 
+    def find_z():
+        '''This function searches the Roman database for any available redshift measurements of the object in question
+        Parameters
+        ----------
+        ra: float
+            Right ascension of the object if not given at initialization
+        dec: float
+            Declination of the object if not given at initialization
+        overwrite: bool
+            If True, overwrites any RA/DEC provided earlier 
+        Returns
+        -------
+        A dictionary of available redshift measurements, if any
+        '''
+        #TODO: Get this all set up
+        #if (self.sn_id==None):
+            #Find the SN corresponding with the given RA/DEC. If there is none, throw an error. 
+        dict_z={}
+        #Step 1: Check the catalogue of the SN for redshift. If given, dict_z["catalog"]=z and dict_z["catalog_err"]=z_err
+        #Step 2: Check for hostgal_properties redshift. If given, dict_z["hostgal"]=z and dict_z["hostgal_err"]=z_err
+        #Step 3: Check for a photo-z from phrosty. If given, dict_z["photo_z"]=z and dict_z["photo_z_err"]=z_err
+        #Step 4: Check hostgal_extdata.  If given, dict_z["hostgal_ext"]=z and dict_z["hostgal_ext_e"]=z_err
+
     def check_config(self, config_file):
         """This function checks a configuration file to ensure all parameters are valid and provides information on the failing parameter
         Parameters
@@ -357,16 +378,17 @@ class fitter:
         verbose=config.value("run.verbose")
         if(verbose!=None):
             assert isinstance(verbose, bool), "verbose must be boolean"
-        z=config.value("temp.z")
-        fixed_z=config.value("run.fixed_z")
-        z_func=config.value("temp.z_func")
         working_dir=config.value("paths.working_dir")
         local=config.value("run.local")
+        fixed_z=config.value("run.fixed_z")
         cleanup=config.value("run.cleanup")
+        threads=config.value("run.threads")
         filter_path=config.value("paths.filter_path")
         provenance_tag=config.value("temp.provenance_tag")
         spec_process=config.value("temp.spec_process")
         phot_process=config.value("temp.phot_process")
+        z=config.value("temp.z")
+        z_func=config.value("temp.z_func")
         mjd_min_offset=config.value("params.mjd_min_offset")
         mjd_max_offset=config.value("params.mjd_max_offset")
         mjd_disco=config.value("temp.mjd_disco")
@@ -387,44 +409,64 @@ class fitter:
         image_name=config.value("output.image_name")
         return_subtracted=config.value("output.return_subtracted")
         save_subtracted=config.value("output.save_subtracted")
-        subtracted_name=config.value("output.subtracted_name")
-        assert isinstance(fixed_z, bool), "fixed_z must be a boolean"
-        if fixed_z==True:
-            assert z != None, "Redshift must be provided"
-            assert isinstance(z, float) or isinstance(z, int), "z must be float or int"
-            assert z>0, "z must be greater than zero"
-        else:
-            assert z_func!=None, "A PDF for the redshift must be provided"
-            assert z_func.shape[0]==1 or z_func.shape[0]==2, "z_func must be a 1-D or 2-D array"
-            assert z_func.dtype==float or z_func.dtype==int, "z_func may only contain floats or ints"
+        subtracted_name=config.value("output.subtracted_name")        
         if(local!=None):
             assert isinstance(local, bool), "local must be a boolean"
         else:
             local=False
         if(cleanup!=None):
             assert isinstance(cleanup, bool), "cleanup must be a boolean"
+        if(threads!=None):
+            assert isinstance(threads, float) or isinstance(threads, int) or threads=="max", "Threads must be float, int, or /'max/'"
+        assert isinstance(fixed_z, bool), "fixed_z must be a boolean"
+        if fixed_z==True:
+            if local==True:
+                z=config.value("local.z")
+            assert z != None, "Redshift must be provided"
+            assert isinstance(z, float) or isinstance(z, int), "z must be float or int"
+            assert z>0, "z must be greater than zero"
         else:
-            cleanup=False
+            if local==True:
+                z_func=config.value("local.z_func")
+            assert z_func!=None, "A PDF for the redshift must be provided"
+            assert z_func.ndim==1 or z_func.shape[0]==2, "z_func must be a 1-D or 2-D array"
+            assert z_func.dtype==float or z_func.dtype==int, "z_func may only contain floats or ints"
+            if z_func.ndim==1:
+                assert len(z_func)==10 or len(z_func)==2, "z_func must be either 2 or 10 elements long if a 1-D array"
+            #TODO: get this all set up with database access
+            #else:
+                #if z_func!=None:
+                    #assert z_func in ["catalog", "photo_z", "hostgal", "hostgal_ext"], "z_func must be one of catalog, photo_z, hostgal, hostgal_ext"
+                    #if z_func==catalog:
+                        #Check if there is a catalog z
+                    #elif z_func==photo_z:
+                        #Check if there is a photo_z 
+                    #elif z_func==hostgal:
+                        #Check if there is a host galaxy z
+                    #elif z_func==hostgal_ext:
+                        #Check if there is an external host galaxy z
+                #else:
+                    #Check all four to see if there is any z
         assert working_dir != None, "A working directory must be provided"
         assert isinstance(working_dir, str), "working_dir must be a string"
         assert os.path.isdir(working_dir), "working_dir is not an existing directory. Please create the directory and try again"
         if(provenance_tag!=None):
             assert isinstance(provenance_tag, str), "provenance_tag must be a string"
-            #Note: later add something to ensure the provenance is valid
+            #TODO: later add something to ensure the provenance is valid
         if(spec_process!=None):
             assert isinstance(spec_process, str), "spec_process must be a string"
-            #Note: later add something to ensure process is valid
+            #TODO: later add something to ensure process is valid
         if(phot_process!=None):
             assert isinstance(phot_process, str), "phot_process must be a string"
-            #Note: later add something to ensure process is valid
+            #TODO: later add something to ensure process is valid
         if(mjd_min_offset!=None):
             assert isinstance(mjd_min_offset, float) or isinstance(mjd_min_offset, int), "mjd_min_offset must be a float or int"
         else:
-            mjd_min_offset=-90
+            mjd_min_offset=30
         if(mjd_max_offset!=None):
             assert isinstance(mjd_max_offset, float) or isinstance(mjd_max_offset, int), "mjd_max_offset must be a float or int"
         else:
-            mjd_max_offset=-30
+            mjd_max_offset=90
         assert mjd_min_offset<mjd_max_offset, "Minimum offset must be less than maximum offset"
         assert sim_code!=None, "Simulation code choice must be provided"
         assert sim_code=="BC03" or sim_code=="FSPS", "sim_code must be a string, and must be either BC03 or FSPS"
@@ -771,6 +813,7 @@ class fitter:
         working_dir=config.value("paths.working_dir")
         local=config.value("run.local")
         cleanup=config.value("run.cleanup")
+        threads=config.value("run.threads")
         filter_path=config.value("paths.filter_path")
         provenance_tag=config.value("temp.provenance_tag")
         spec_process=config.value("temp.spec_process")
@@ -801,10 +844,17 @@ class fitter:
             local=False
         if(cleanup==None):
             cleanup=False
+        if(threads!=None):
+            if isinstance(threads, float):
+                threads=int(threads)
+            elif threads=="max":
+                threads==multiprocessing.cpu_count()
+        else:
+            threads==multiprocessing.cpu_count()
         if(mjd_min_offset==None):
-            mjd_min_offset=-90
+            mjd_min_offset=30
         if(mjd_max_offset==None):
-            mjd_max_offset=30
+            mjd_max_offset=90
         if(one_sed==None):
             one_sed=False
         if(use_bayes==None):
@@ -849,11 +899,16 @@ class fitter:
                 ys=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
                 temp_spline=spi.make_splrep(xs, ys)
                 z_spline=temp_spline.derivative()
+            #TODO: get this all set up with the database
             #else:
-            #    Step 1: Check the catalogue of the SN for redshift. If given, make a normal. Pull hostgal ID while here. 
-            #    Step 2: Check for hostgal_properties redshift. If given, make a normal
-            #    Step 3: Check for a photo-z from phrosty. If given, make a function. Unsure of type right now. 
-            #    Step 4: Check hostgal_extdata.  If given, make a normal
+                #if(z_func==None):
+                    #Check all the options and take the first one that works. 
+                    #Step 1: Check the catalogue of the SN for redshift. If given, make a normal. Pull hostgal ID while here. 
+                    #Step 2: Check for hostgal_properties redshift. If given, make a normal
+                    #Step 3: Check for a photo-z from phrosty. If given, make a function. Unsure of type right now. 
+                    #Step 4: Check hostgal_extdata.  If given, make a normal
+                #else:
+                    #Use only the one specified. 
         #Determine which parameters are being fit and make a dictionary of them 
         if (sim_code=="BC03"):
             # Retrieve fixed parameters and check that all needed parameters have been provided
@@ -975,7 +1030,7 @@ class fitter:
                     i+=1
                 param_dict[i]="age"
                 i+=1
-            else: #This should be impossible as this is checked above but you never know
+            else: #This should be impossible as it's checked above but you never know
                 self.log.error("Invalid SFH")
                 return
             if fixed_z==False:
@@ -1530,7 +1585,13 @@ class fitter:
             #        self.log.error("Filter 213 is not in the filter file")
             #        return
             #else:
-            # Temporary, replace when filters are in the database somewhere
+            # TODO: Pull filters from database
+        if(verbose==True):
+            self.log.info("Time to retrieve and open image and bandpass files: "+str(datetime.timedelta(seconds=(time.time()-start))))
+            self.log.info("Number of images in use: "+str(len(phot_data_list)+len(spec_data_list)))
+            self.log.info("Number of pixels in the segmentation map: "+str(self.numPix))
+            start=time.time()
+            self.log.info("Calculating pixel overlaps")
         #Make the segmentation map that corresponds with the SN image. Basically transfers the base direct image to the SN image, which will be the base set of pixels going forward. 
         #Make sure there is only one object in the segmentation map
         assert np.max(self.seg_map_data)==1, "More than one object is included in the segmentation map. Please select an object using make_map or pick_object"
@@ -1541,12 +1602,6 @@ class fitter:
         #Overlap the pixel grids with pypolyclip to deal with mismatched WCS. Calculated here so they are only calculated once
         #Also generate simulator objects for spectroscopy, again so this only has to be done once
         #Should take on the order of seconds to minutes per image, depending on the number of pixels present in the segmentation map, a little longer for spectroscopic images to create the simulator
-        if(verbose==True):
-            self.log.info("Time to retrieve and open image and bandpass files: "+str(datetime.timedelta(seconds=(time.time()-start))))
-            self.log.info("Number of images in use: "+str(len(phot_data_list)+len(spec_data_list)))
-            self.log.info("Number of pixels in the segmentation map: "+str(self.numPix))
-            start=time.time()
-            self.log.info("Calculating pixel overlaps")
         #Set the size of the pixel grid the other images will be superimposed on
         naxis=(self.sn_size[0], self.sn_size[1])
         #Now we do a clever trick to avoid having to polyclip everything, which takes hours
@@ -1577,7 +1632,7 @@ class fitter:
             #Lower bound on redshift to enforce physical reality. Unlikely to be used as the PDF should prohibit this but better safe than sorry. 
             low_z=0
             use_bounds=config.value("params.bounds.use_bounds")
-            #Return zero if not using bounds. Bounds age, preventing it from being less than zero, to prevent errors in the modeling code. Bounds z to be greater than zero to ensure physical plausibility
+            #Return zero if not using bounds. Bounds age, preventing it from being less than zero, to prevent errors in the modeling code. Bounds z to be greater than zero to ensure physical reality
             if(use_bounds==False):
                 if(one_sed==False):
                     for i in range(0, self.numPix):
@@ -1654,6 +1709,7 @@ class fitter:
             else:
                 z_fit=z
             #Simulate the spectra for the underlying pixel grid, using the original segmentation map
+            # TODO: Implement multithreading to speed up the process
             if sim_code=="BC03":
                 #If these variables haven't been defined because they're not needed, use None as a placeholder
                 try:
@@ -1664,9 +1720,9 @@ class fitter:
                     file_names
                 except:
                     file_names=None
-                _make_SED_bc03(working_dir, one_sed, theta, plength, self.pixPos, ised_dir, csp_params, recyc, file_names)
+                _make_SED_bc03(working_dir, one_sed, theta, plength, self.pixPos, ised_dir, csp_params, recyc, file_names, threads)
             elif sim_code=="FSPS":
-                _make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, self.pixPos)
+                _make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, self.pixPos, threads)
             #Sum likelihoods for the spectroscopy data
             sumlikely=0
             for k in range(0, len(spec_data_list)):
@@ -1758,23 +1814,11 @@ class fitter:
         spi = True
         minimum = 0.0
         if method == None:
-            #minimum = fmin(log_prob, theta)
             minimum = least_squares(log_prob, theta)
         elif method in ["trf", "dogbox", "lm"]:
             minimum = least_squares(log_prob, theta, method=method)
         elif method in ["Nelder-Mead", "Powell", "CG", "BFGS", "L-BFGS-B", "TNC", "COBYLA", "COBYQA", "SLSQP", "trust-constr"]:
             minimum = minimize(log_prob, theta, method=method)
-        elif method in ["Newton-CG", "dogleg", "trust-ncg", "trust-exact", "trust-krylov"]:
-            self.log.error("Requires callable Jacobian. Not currently supported")
-            return
-            #if jac == None:
-            #    log.error("Callable Jacobian required for these methods")
-            #    return
-            #else:
-            #    minimum = minimize(log_prob, theta, method=method, jac=jac)
-        else:
-            self.log.error("Invalid method")
-            return
         if(minimum.success==False):
             self.log.error("Optimization failed. Please examine the object returned by this function, which is the entire output of the scipy minimization, to find the issue")
             return minimum
@@ -1801,9 +1845,9 @@ class fitter:
                 file_names
             except:
                 file_names=None
-            _make_SED_bc03(working_dir, one_sed, best_fit, plength, self.pixPos, ised_dir, csp_params, recyc, file_names)
+            _make_SED_bc03(working_dir, one_sed, best_fit, plength, self.pixPos, ised_dir, csp_params, recyc, file_names, threads)
         elif sim_code=="FSPS":
-            _make_SED_fsps(working_dir, one_sed, best_fit, param_dict, plength, sp, self.pixPos)
+            _make_SED_fsps(working_dir, one_sed, best_fit, param_dict, plength, sp, self.pixPos, threads)
         #Add the spectra to the simulator object 
         for q in range(0, len(self.pixPos)):
             x=self.pixPos[q][1]
@@ -1911,7 +1955,7 @@ class fitter:
                     else:
                         hdul.writeto(fit_name+".fits", overwrite=True)
                 else:
-                    #Temporary, until we have a file format for this
+                    #TODO: Figure out how to save to the database
                     self.log.error("Saving the fit to the database not currently supported")
                     return
             if(return_image==True):
@@ -1926,7 +1970,7 @@ class fitter:
                     else:
                         hdu.writeto(image_name + ".fits", overwrite=True)
                 else:
-                    #Temporary, until we have a format for 2-D spectra
+                    #TODO: Figure out how to save to the database
                     self.log.error("Saving the best fit image not currently supported")
                     #im_header=self.seg_map_hdr
                     #im_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
@@ -1950,7 +1994,7 @@ class fitter:
                         else:
                             hdu.writeto(subtracted_name + ".fits", overwrite=True)
                     else:
-                        #Temporary, until we have a format for 2-D spectra
+                        #TODO: Figure out how to save to the database
                         self.log.error("Saving the subtracted image not currently supported")
                         #im_header=self.seg_map_hdr
                         #im_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
@@ -1968,7 +2012,7 @@ class fitter:
                 self.log.info("Total time to run: "+str(datetime.timedelta(seconds=(time.time()-big_start))))
             return return_list
         # Perform Bayesian analysis
-        #   Not currently functional
+        #   TODO: Implement approximate Bayesian computation (ABC)
         else:
             self.log.error("Bayesian statistics not currently supported")
             return

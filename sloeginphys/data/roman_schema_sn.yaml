@@ -1,0 +1,37 @@
+%YAML 1.1
+---
+$schema: "http://stsci.edu/schemas/yaml-schema/draft-01"
+
+title: Internal Roman SN PIT schema
+description: |
+  An asdf file with data, error, WCS, and other metadata required for running the Roman SN PIT fitting code
+
+type: object
+
+
+properties:
+  roman:
+    title: Roman
+    properties:
+      data: 
+        title: data
+      err: 
+        title: err
+      meta:
+        title: meta
+        properties:
+          wcs: 
+            title: wcs
+          instrument:
+            title: instrument
+            properties:
+              detector:
+                title: detector
+              optical_element:
+                title: optical_element
+            required: [detector, optical_element]
+        required: [wcs]
+    required: [data, err]
+required: [roman]
+additionalProperties: true
+...

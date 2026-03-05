@@ -3,7 +3,8 @@ from astropy.wcs import WCS
 from pypolyclip import clip_multi
 from roman_wfss.modeling.linear.WFSSImageSimulator import WFSSImageSimulator
 from roman_wfss.modeling.linear.WFSSImageSimulator_NERSC import WFSSImageSimulator_NERSC
-from .bc03utils import make_spec, make_csp_file, run_csp
+from .bc03utils import make_spec
+from concurrent.futures import ThreadPoolExecutor
 
 def _overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data, band, sca, working_dir, NERSC):
     """Overlaps the pixels between two different coordinate systems"""
@@ -79,7 +80,7 @@ def _overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data, band, sc
     else:
         return(pixel_list, new_seg_data)
 
-def _make_SED_bc03(working_dir, one_sed, theta, plength, pixPos, ised_dir, csp_params, recyc, file_names):
+def _make_SED_bc03(working_dir, one_sed, theta, plength, pixPos, ised_dir, csp_params, recyc, file_names, threads):
     """Make an SED using BC03"""
     dust=csp_params[3]
     sfh=csp_params[4]
@@ -96,9 +97,7 @@ def _make_SED_bc03(working_dir, one_sed, theta, plength, pixPos, ised_dir, csp_p
             elif sfh == 6:
                 make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names], age_params, delete_in=True, full_name=working_dir+"test.txt")
             else:
-                make_csp_file(ised_dir, csp_params[0], csp_params[1], csp_params[2], dust, sfh, spec_name, csp_name)
-                run_csp(working_dir, csp_name)
-                #make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, delete_in=True, full_name=working_dir+"test.txt")
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, delete_in=True, full_name=working_dir+"test.txt")
         else:
             dust_params = list(sfh_params[-2:])
             sfh_params = list(sfh_params[:-2])
@@ -109,14 +108,7 @@ def _make_SED_bc03(working_dir, one_sed, theta, plength, pixPos, ised_dir, csp_p
             else:
                 make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, delete_in=True, full_name=working_dir+"test.txt")
     else:
-        for i in range(0, len(pixPos)):
-            params = theta[int(i * plength) : int((i + 1) * plength)]
-            #Simulate the spectra using the pixels from the segmentation map
-            age_params = [params[-1]]
-            sfh_params = list(params[:-1])
-            spec_name = "test_" + str(i)
-            csp_name = working_dir + "param_" + str(i) + ".txt"
-            full_name=working_dir+str(pixPos[i][1])+"_"+str(pixPos[i][0])+".txt"
+        def worker(age_params, sfh_params, spec_name, csp_name, full_name):
             #Make the spectra
             if dust == False:
                 if sfh == 1 or sfh == -1:
@@ -134,10 +126,19 @@ def _make_SED_bc03(working_dir, one_sed, theta, plength, pixPos, ised_dir, csp_p
                     make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names[i]], age_params, dust_params=dust_params, delete_in=True, full_name=full_name)
                 else:
                     make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, delete_in=True, full_name=full_name)
-                
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            for i in range(0, len(pixPos)):
+                params = theta[int(i * plength) : int((i + 1) * plength)]
+                #Simulate the spectra using the pixels from the segmentation map
+                age_params = [params[-1]]
+                sfh_params = list(params[:-1])
+                spec_name = "test_" + str(i)
+                csp_name = working_dir + "param_" + str(i) + ".txt"
+                full_name=working_dir+str(pixPos[i][1])+"_"+str(pixPos[i][0])+".txt"
+                executor.submit(worker, age_params, sfh_params, spec_name, csp_name, full_name)
     return
 
-def _make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, pixPos):
+def _make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, pixPos, threads):
     """Make an SED using FSPS"""
     if(one_sed==True):
         params = theta[int(0 * plength) : int((0 + 1) * plength)]
@@ -150,16 +151,20 @@ def _make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, pixPos)
         spec = np.transpose(spec)
         np.savetxt(working_dir+"test.txt", spec)
     else:
-        for i in range(0, len(pixPos)):
-            params = theta[int(i * plength) : int((i + 1) * plength)]
-            for j in range(0, len(param_dict)):
-                sp.params[param_dict[j]] = params[j]
-            #This is kind of a cheat. tage is a parameter in sp but must also be input in making the spectrum, so here we set it with all the others, then pull it out for actually making the spectrum
-            tage=sp.params["tage"]
+        def worker():
             # Make the spectrum
             spec = sp.get_spectrum(tage=tage, peraa=True)
             spec = np.transpose(spec)
             np.savetxt(working_dir+str(pixPos[i][0])+"_"+str(pixPos[i][1])+".txt", spec)
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            for i in range(0, len(pixPos)):
+                params = theta[int(i * plength) : int((i + 1) * plength)]
+                for j in range(0, len(param_dict)):
+                    sp.params[param_dict[j]] = params[j]
+                #This is kind of a cheat. tage is a parameter in sp but must also be input in making the spectrum, so here we set it with all the others, then pull it out for actually making the spectrum
+                tage=sp.params["tage"]
+                executor.submit(worker)
+
 
 def _translate_SED(test_pixPos, pix, one_sed, working_dir, z, cosmo, verbose=False, name=None):
     """Translate the SEDs made with BC03 or FSPS from the original coordinate system to another one"""

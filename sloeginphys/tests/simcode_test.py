@@ -1,3 +1,5 @@
+#Tests specific simulation codes, BC03 and FSPS. One of these pairs of tests must pass for sloeginphys to function. 
+
 import numpy as np
 import sloeginphys
 from sloeginphys.fit import fitter

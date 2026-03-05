@@ -1,3 +1,5 @@
+#General overview tests. Tests each function in sloeginphys from initialization to running a fit. 
+
 import numpy as np
 import sloeginphys
 from sloeginphys.fit import fitter
