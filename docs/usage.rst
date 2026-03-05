@@ -13,7 +13,7 @@ method: The frequentist method to use when running the initial fit. Some choices
 
 use_bayes: If True, the full Bayesian fit will provide a more complete exploration of the parameter space and give a better uncertainty estimation. This can take a lot of time. If False, only the frequentist fit results are returned but the function runs much faster. Note that right now use_bayes=True is NOT supported. 
 
-one_sed: If True, each pixel is assumed to have the same spectrum, so only one simulation is performed in each pass. This saves time, especially in cases where the host galaxy covers a large number of pixels, but means that local variations in the galaxy are not accounted for. If False, each pixel is assigned a unique SED. This requires more simulations to be run, but allows the galaxy to vary more between locations. 
+one_sed: If True, each pixel is assumed to have the same spectrum, so only one simulation is performed in each pass. This saves time, especially in cases where the host galaxy covers a large number of pixels, but means that local variations in the galaxy are not accounted for. If False, each pixel is assigned a unique SED. This requires more simulations to be run, but allows the galaxy to vary more between locations. The use of multithreading has decreased the amount of time to generate the unique SEDs but with large galaxies or if running on a local machine with a small number of cores this could still be a bottleneck. 
 
 sim_code: Choice to use either BC03 (GALAXEV) or FSPS to simulate the SEDs. BC03 allows for fewer inputs and provides fewer outputs, but runs faster. FSPS runs slower, but allows a great diversity of input parameters and outputs many useful quantities. Only FSPS can fit for metallicity at this point. Note: the number of FSPS parameters to fit may also impact runtime. 
 
@@ -141,6 +141,14 @@ Known bugs
 When running in a Jupyter notebook, the program does not always recognize environment-level variables, which are important for many aspects of sloeginphys. It is possible to set these within the notebook using "os.environ" but obviously this is not a long term solution. Some errors that result from this include: an error saying that no default configuration file has been provided when using snappl; an error in the bc03 log file asking the user to set the standard filters; a failure to import FSPS. If any of these occur, try setting the relevant variable in the notebook, and if that fixes the problem then at least you know what it is. 
 
 
+Planned changes and updates 
+===========================
+
+Currently under development: implementation of approximate Bayesian computation (ABC) to give better uncertainty measurements and improve precision
+
+Planned for the future: retrieve photometric filter functions from the database if running non-locally; automatically find available redshift measurements in the database; save output to the database. 
+
+
 Configuration options
 =====================
 
@@ -211,6 +219,17 @@ provenance_tag (string) – the provenance string to use if automatically retrie
 spec_process (string) – the process to use for spectra if automatically retrieving data
 
 phot_process (string) – the process to use for photometry if automatically retrieving data
+
+local
+-----
+Parameters that will only be used in local execution. If running non-locally, these will be ignored. 
+
+z (float) - the redshift of the object, NOT metallicity. This must be greater than zero.
+
+z_func (array) - the PDF of the redshift if fixed_z is False. May be provided as a 1-D or 2-D array. The following inputs are permitted:
+    2-D array: of the form [[redshift], [probability]], for example [[0.1, 0.2, 0.3], [0.1, 0.5, 0.1]]. This will be turned into a spline and used as the prior on redshift. 
+    1-D array with length 10: of the form [redshift]. These numbers will be treated as a CDF, with each value representing the next 10%. For example, if the first value is 0.4, sloeginphys will create a CDF with 10% at z=0.4. This will be turned into a spline, then into a PDF, which will be used as the prior on redshfit. 
+    1-D array with length 2: of the form [mu, sigma]. Sloeginphys will generate a normal with the given mean and standard deviation and use that as the prior on redshift. 
 
 params
 ------
