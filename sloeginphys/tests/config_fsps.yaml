@@ -1,0 +1,182 @@
+spectroscopy:
+  sloeginphys:
+    run:
+      local: True
+      verbose: True
+      fixed_z: True
+      cleanup: False
+    paths: 
+      working_dir: ./sloeginphys/tests/
+      filter_path: 
+      ised_dir: 
+      sps_home: 
+    output: 
+      return_fit: True
+      save_fit: False
+      fit_name: 
+      return_image: True
+      save_image: False
+      image_name: 
+      return_subtracted: True
+      save_subtracted: False
+      subtracted_name: 
+      full_bayes: False
+    temp: #Everything here should be eventually either pulled from database or input into the command line, or possibly set to be fixed  z_test=0.4555000066757202
+      z: 0.5
+      z_func: 
+      mjd_disco: 62041.6416
+      provenance_tag: "ou2024"
+      spec_process: "load_ou2024_dispimage"
+      phot_process: "load_ou2024_image"
+    params: #z=1.4421000480651855
+        mjd_min_offset: 460
+        mjd_max_offset: 463
+        method: 
+        use_bayes: False
+        niter: 
+        nwalkers:  
+        sim_code: FSPS
+        one_sed: True        
+        buffer: 
+        H0: 
+        OmegaM: 
+        bc03_params: 
+          library: BaSeL
+          metallicity: m82
+          imf: kroup
+          dust: False
+          sfh: 2
+          file_names: 
+          recyc: 
+        fsps_params:
+          zcontinuous: 
+          zmet: 
+          imf_type: 
+          sfh: 
+          dust_type: 
+          tpagb_norm_type: 
+          wgp1: 
+          wgp2: 
+          wgp3: 
+          add_agb_dust_model: 
+          add_dust_emission: 
+          add_igm_absorption:  
+          add_neb_emission: 
+          add_neb_continuum: 
+          add_stellar_remnants: 
+          compute_light_ages: 
+          nebemlineinspec: 
+          smooth_velocity: 
+          smooth_lsf: 
+          cloudy_dust: 
+          use_wr_spectra: 
+          add_xrb_emission: 
+          sigma_smooth: 
+          min_wave_smooth: 
+          max_wave_smooth: 
+        fsps_optional: 
+          logzsol: default
+          pmetals: default
+          gas_logu: default
+          gas_logz: default
+          imf1: default
+          imf2: default
+          imf3: default
+          imf_upper_limit: default
+          imf_lower_limit: default
+          sf_start: default
+          sf_trunc: default
+          tage: 
+          fburst: default
+          tburst: default
+          sf_slope: default
+          tau: default
+          const: default
+          dust_tesc: default
+          dust1: default
+          dust2: default
+          dust3: default
+          frac_nodust: default
+          frac_obrun: default
+          dust_index: default
+          dust1_index: default
+          mwr: default
+          duste_gamma: default
+          duste_umin: default
+          duste_qpah: default
+          fagn: default
+          agn_tau: default
+          agb_dust: default
+          dell: default
+          delt: default
+          redgb: default
+          agb: default
+          fcstar: default
+          sbss: default
+          fbhb: default
+          pagb: default
+          frac_xrb: default
+          vdmc: default
+          mdave: default
+          igm_factor: default
+          masscut: default
+          uvb: default
+          logt_wmb_hot: default 
+        bounds: 
+          use_bounds: True
+          z: 
+          tau: 
+          Tcut: 
+          sfr: 
+          epsilon: 
+          age: [1.0e-5, 14.0]
+          mu: 
+          tauV: 
+          zmet: 
+          logzsol: 
+          pmetals: 
+          gas_logu: 
+          gas_logz: 
+          imf1: 
+          imf2: 
+          imf3: 
+          imf_upper_limit: 
+          imf_lower_limit: 
+          sf_start: 
+          sf_trunc: 
+          tage: 
+          fburst: 
+          tburst: 
+          sf_slope: 
+          tau: 
+          const: 
+          dust_tesc: 
+          dust1: 
+          dust2: 
+          dust3: 
+          frac_nodust: 
+          frac_obrun: 
+          dust_index: 
+          dust1_index: 
+          mwr: 
+          duste_gamma: 
+          duste_umin: 
+          duste_qpah: 
+          fagn: 
+          agn_tau: 
+          agb_dust: 
+          dell: 
+          delt: 
+          redgb: 
+          agb: 
+          fcstar: 
+          sbss: 
+          fbhb: 
+          pagb: 
+          frac_xrb: 
+          vdmc: 
+          mdave: 
+          igm_factor: 
+          masscut: 
+          uvb: 
+          logt_wmb_hot: 

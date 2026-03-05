@@ -1,4 +1,14 @@
-def overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data):
+import numpy as np
+from astropy.wcs import WCS
+from pypolyclip import clip_multi
+from roman_wfss.modeling.linear.WFSSImageSimulator import WFSSImageSimulator
+from roman_wfss.modeling.linear.WFSSImageSimulator_NERSC import WFSSImageSimulator_NERSC
+from .bc03utils import make_spec
+from concurrent.futures import ThreadPoolExecutor
+
+def _overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data, band, sca, working_dir, NERSC):
+    """Overlaps the pixels between two different coordinate systems"""
+    naxis=(xmax, ymax)
     #Find which pixels in the data correspond to pixels in the reference image
     xPos=np.transpose(pixPos)[1]
     yPos=np.transpose(pixPos)[0]
@@ -39,7 +49,7 @@ def overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data):
                 for s in range(0, len(pixPos)):
                     pixPos_coord=pixPos[s]
                     if(list(test_coord)==list(pixPos_coord)):
-                        #Add this pixel to the segmentation map
+                        #Add this pixel to the new segmentation map
                         new_seg_data[y, x]=1
                         #Only add to the pixel list pixels that are included in the original segmentation map
                         new_xc.append(xc[q])
@@ -47,11 +57,158 @@ def overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data):
                         new_area.append(area[q])
                         pixel_list.append([x, y, new_xc, new_yc, new_area])
     if(spec==True):
-        #Make the simulator with the new segmentation map. Prevents us from simulating an entire empty image.
-        test_sim=WFSSImageSimulator_nohdr(data, new_seg_data, data_wcs, "SNPrism")
-        return(pixel_list, test_sim)
+        if(NERSC==True):
+            test_sim=WFSSImageSimulator_NERSC(data, data_wcs, new_seg_data, data_wcs, "PRISM", sca, xmax, ymax)
+        else:
+            #Make the simulator with the new segmentation map. Prevents us from simulating an entire empty image.
+            #Make a dummy datacube for initialization. Will be overwritten later. 
+            im=fits.ImageHDU(data=np.zeros((1, ymax, xmax)), name="SCI")
+            im.header["LAM000"]=0
+            test_cube=fits.HDUList([fits.PrimaryHDU(), im])
+            test_cube.writeto(working_dir+"test_cube_temp.fits", overwrite=True)
+            #Make the segmentation map as a fits file
+            seg_hdul=fits.HDULIst([fits.PrimaryHDU(), fits.ImageHDU(data=new_seg_data, header=data_wcs.to_header(), name="SCI")]) 
+            seg_hdul.writeto(working_dir+"seg_map_temp.fits")
+            #Make the image as a fits file
+            im=fits.ImageHDU(data=data, header=data_wcs.to_header(), name="SCI")
+            im.header["SCA"]=sca
+            im.header["TELESCOP"]="ROMAN"
+            im_hdul=fits.HDULIst([fits.PrimaryHDU(), im])
+            im_hdul.writeto(working_dir+"dir_im_temp.fits")
+            test_sim=WFSSImageSimulator(working_dir+"test_cube_temp.fits", working_dir+"dir_im_temp.fits", working_dir+"seg_map_temp.fits")
+        return(pixel_list, test_sim, new_seg_data)
     else:
         return(pixel_list, new_seg_data)
 
-def sim_sed():
-    
+def _make_SED_bc03(working_dir, one_sed, theta, plength, pixPos, ised_dir, csp_params, recyc, file_names, threads):
+    """Make an SED using BC03"""
+    dust=csp_params[3]
+    sfh=csp_params[4]
+    if(one_sed==True):
+        params=theta[int(0 * plength) : int((0 + 1) * plength)]
+        age_params = [params[-1]]
+        sfh_params = list(params[:-1])
+        spec_name = "test"
+        csp_name = working_dir + "param.txt"
+        # Make the spectra
+        if dust == False:
+            if sfh == 1 or sfh == -1:
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, recyc=recyc, delete_in=True, full_name=working_dir+"test.txt")
+            elif sfh == 6:
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names], age_params, delete_in=True, full_name=working_dir+"test.txt")
+            else:
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, delete_in=True, full_name=working_dir+"test.txt")
+        else:
+            dust_params = list(sfh_params[-2:])
+            sfh_params = list(sfh_params[:-2])
+            if sfh == 1 or sfh == -1:
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, recyc=recyc,delete_in=True, full_name=working_dir+"test.txt")
+            elif sfh == 6:
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names], age_params, dust_params=dust_params, delete_in=True, full_name=working_dir+"test.txt")
+            else:
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, delete_in=True, full_name=working_dir+"test.txt")
+    else:
+        def worker(age_params, sfh_params, spec_name, csp_name, full_name):
+            #Make the spectra
+            if dust == False:
+                if sfh == 1 or sfh == -1:
+                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, recyc=recyc, delete_in=True, full_name=full_name)
+                elif sfh == 6:
+                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names[i]], age_params, delete_in=True, full_name=full_name)
+                else:
+                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, delete_in=True, full_name=full_name)
+            else:
+                dust_params = list(sfh_params[-2:])
+                sfh_params = list(sfh_params[:-2])
+                if sfh == 1 or sfh == -1:
+                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, recyc=recyc,delete_in=True, full_name=full_name)
+                elif sfh == 6:
+                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names[i]], age_params, dust_params=dust_params, delete_in=True, full_name=full_name)
+                else:
+                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, delete_in=True, full_name=full_name)
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            for i in range(0, len(pixPos)):
+                params = theta[int(i * plength) : int((i + 1) * plength)]
+                #Simulate the spectra using the pixels from the segmentation map
+                age_params = [params[-1]]
+                sfh_params = list(params[:-1])
+                spec_name = "test_" + str(i)
+                csp_name = working_dir + "param_" + str(i) + ".txt"
+                full_name=working_dir+str(pixPos[i][1])+"_"+str(pixPos[i][0])+".txt"
+                executor.submit(worker, age_params, sfh_params, spec_name, csp_name, full_name)
+    return
+
+def _make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, pixPos, threads):
+    """Make an SED using FSPS"""
+    if(one_sed==True):
+        params = theta[int(0 * plength) : int((0 + 1) * plength)]
+        for j in range(0, len(param_dict)):
+            sp.params[param_dict[j]] = params[j]
+        #This is kind of a cheat. tage is a parameter in sp but must also be input in making the spectrum, so here we set it with all the others, then pull it out for actually making the spectrum
+        tage=sp.params["tage"]
+        #Make the spectrum
+        spec = sp.get_spectrum(tage=tage, peraa=True)
+        spec = np.transpose(spec)
+        np.savetxt(working_dir+"test.txt", spec)
+    else:
+        def worker(i):
+            # Make the spectrum
+            spec = sp.get_spectrum(tage=tage, peraa=True)
+            spec = np.transpose(spec)
+            np.savetxt(working_dir+str(pixPos[i][0])+"_"+str(pixPos[i][1])+".txt", spec)
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            for i in range(0, len(pixPos)):
+                params = theta[int(i * plength) : int((i + 1) * plength)]
+                for j in range(0, len(param_dict)):
+                    sp.params[param_dict[j]] = params[j]
+                #This is kind of a cheat. tage is a parameter in sp but must also be input in making the spectrum, so here we set it with all the others, then pull it out for actually making the spectrum
+                tage=sp.params["tage"]
+                executor.submit(worker, i)
+
+
+def _translate_SED(test_pixPos, pix, one_sed, working_dir, z, cosmo, verbose=False, name=None):
+    """Translate the SEDs made with BC03 or FSPS from the original coordinate system to another one"""
+    #Multiply the spectra and add them to the simulator
+    for q in range(0, len(test_pixPos)):
+        #Get spectra and multiply
+        #Parameters of the pixel
+        y=test_pixPos[q][0]
+        x=test_pixPos[q][1]
+        pix_params=[]
+        #Get the polyclip parameters
+        for t in range(0, len(pix)):
+            test_x=pix[t][0]
+            test_y=pix[t][1]
+            if(test_x==x and test_y==y):
+                pix_params=pix[t]
+        xc=pix_params[2]
+        yc=pix_params[3]
+        area=pix_params[4]
+        #Load in the first spectrum to get wavelength
+        if(one_sed==True):
+            first_spec=np.loadtxt(working_dir+"test.txt")
+        else:
+            first_spec=np.loadtxt(working_dir+str(xc[0])+"_"+str(yc[0])+".txt")
+        wave=np.array(first_spec[:, 0])
+        #Convert to cgs units
+        # Input units: L_solar/Å
+        # Dimensional analysis: (L_solar/Å)*(erg*s^-1/L_solar)*(1/cm^2)=erg/s/cm^2/Å
+        #Get luminosity distance from redshift
+        dist=cosmo.luminosity_distance(z).value*3.08567758128e24 #Mpc to cm
+        temp_flux=first_spec[:, 1]*3.826e33*(1/(4*np.pi*dist**2))
+        total_flux=np.array(area[0]*temp_flux)
+        #Sum over all included pixels
+        for r in range(1, len(xc)):
+            if(one_sed==True):
+                temp_flux=first_spec[:, 1]
+            else:
+                spec_temp=np.loadtxt(working_dir+str(xc[r])+"_"+str(yc[r])+".txt")
+                temp_flux=spec_temp[:, 1]
+            flux=temp_flux*3.826e33*(1/(4*np.pi*dist**2))
+            total_flux=total_flux+(area[r]*flux)
+        #Add the spectrum to the simulator and save the file
+        out_data=np.transpose(np.array([wave, total_flux]))
+        if name==None:
+            np.savetxt(working_dir+str(x)+"_"+str(y)+"_data.txt", out_data)
+        else:
+            np.savetxt(working_dir+str(x)+"_"+str(y)+"_"+name+".txt", out_data)
