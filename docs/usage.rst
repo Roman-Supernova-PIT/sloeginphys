@@ -18,20 +18,6 @@ one_sed: If True, each pixel is assumed to have the same spectrum, so only one s
 sim_code: Choice to use either BC03 (GALAXEV) or FSPS to simulate the SEDs. BC03 allows for fewer inputs and provides fewer outputs, but runs faster. FSPS runs slower, but allows a great diversity of input parameters and outputs many useful quantities. Only FSPS can fit for metallicity at this point. Note: the number of FSPS parameters to fit may also impact runtime. 
 
 Simulator Options
-=================
-
-Sloeginphys can use either BC03 (Bruzual and Charlot 2003), also known as GALAXEV, or FSPS/pyFSPS (Flexible Stellar Population Synthesis). At least one of these simulation codes must already be present and functional in the location where you are performing the fits prior to fitting any data. Note that both require a functional fortran compiler. For further information on installation and usage of these simulation codes, see their websites `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ for BC03 and `here <https://dfm.io/python-fsps/current/>`_ for FSPS. I have successfully implemented both on NERSC as well as my personal computer (a MacBook Pro), so either should be a viable option. 
-
-Use of FSPS relies on the Python package pyFSPS. Follow the instructions `here <https://dfm.io/python-fsps/current/installation/>`_ to install this package. It also requires that the variable SPS_HOME is set somewhere. You can add this to your .bash_profile or .bashrc, set it in the configuration file when running the fit, or add it to the source code itself. If you are comfortable poking around in the source code, the file fit.py contains the following two lines of code at the beginning: 
-
-.. code-block:: console
-
-    #os.environ["SPS_HOME"]="/path/to/SPS_HOME/"
-    import fsps
-
-You can uncomment the first line, set "/path/to/SPS_HOME/" to your SPS_HOME, and run the code that way. You will have to reinstall the code if you choose to set SPS_HOME this way. 
-
-Use of BC03 relies on an internal Python wrapper which requires that the variable $bc03 is set in your .bash_profile or elsewhere. This should be done as part of setting up BC03. Follow the instructions in Section 3.1 `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ to install and set up BC03. If you are using bash instead of cshell, replace "setenv" with "export" and replace ".bc_cshrc" with ".bc_bash". I also recommend adding the command "source /path/to/.bc_bash" (or "source /path/to/.bc_cshrc if using cshell) to your .bash_profile. This will set a variety of other environmental variables BC03 requires to run. If BC03 does not seem to be generating spectra and the file "bc03_logfile.txt" contains a line like, "Please set the default filters", run the file .bc_bash and try again. 
 
 BC03 and FSPS behave differently in execution. Because BC03 uses a smaller number of input parameters, all parameters based on the inputs will automatically be fit for. FSPS can have an enormous number of input parameters, so you must select which ones you want to run. Further specific notes are below. 
 
@@ -85,9 +71,6 @@ check_config(config_file)
 This function checks a configuration file to ensure the file is valid. It performs various type checks, limit checks, and others. If the file is not valid, it will return an assertion error with details on the problem parameter and what the parameter should be. This function is run as part of the fit function, but can also be run on any given configuration file if you want to check a file before running. 
 
 The fit function
-================
-
-This is the primary function of the object that performs the fit. It requires as input the data that should be used in the fit, an initial guess, and a configuration file. Its outputs are configurable and include the parameters of the best fit, the simulated best fit image, and the simulated best fit image subtracted from the image containing the supernova. It can either automatically retrieve all data from the Roman database containing given coordinates with certain criteria or use only a provided list of files or image IDs. It can also fit using files in a local directory or personal machine in either fits or asdf format. 
 
 Input data 
 ----------
@@ -130,24 +113,6 @@ Residuals not finite at initial point – this is usually an error that results 
 
 
 Running tests
-=============
-
-If you would like to test sloeginphys, a series of tests are provided in the tests folder. To run these tests, simply run the command "pytest (path to tests folder)". All the tests in the file "sloeginphys_test.py" must pass in order for the code to be considered operational. However, the tests in the file "simcode_test.py" are simulation code specific. The first two tests check the functionality of BC03 and the last two check FSPS. If everything in sloeginphys_test.py passed, at least one of these sets will pass, but the other may not. This can be helpful if you prefer one simulation code or the other, or if you aren't sure if one is properly set up. It is highly recommended that you run the tests prior to fitting to avoid later errors. 
-
-
-Known bugs
-==========
-
-When running in a Jupyter notebook, the program does not always recognize environment-level variables, which are important for many aspects of sloeginphys. It is possible to set these within the notebook using "os.environ" but obviously this is not a long term solution. Some errors that result from this include: an error saying that no default configuration file has been provided when using snappl; an error in the bc03 log file asking the user to set the standard filters; a failure to import FSPS. If any of these occur, try setting the relevant variable in the notebook, and if that fixes the problem then at least you know what it is. 
-
-
-Planned changes and updates 
-===========================
-
-Currently under development: implementation of approximate Bayesian computation (ABC) to give better uncertainty measurements and improve precision
-
-Planned for the future: retrieve photometric filter functions from the database if running non-locally; automatically find available redshift measurements in the database; save output to the database. 
-
 
 Configuration options
 =====================
