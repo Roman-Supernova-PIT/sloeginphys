@@ -5,7 +5,9 @@ Usage
 Fitter: Physically modeling host galaxies
 =========================================
 
-The fitter object uses spectroscopy and photometry of a host galaxy before a supernova to physically model the host. This can be used to subtract the host spectrum from the supernova spectrum, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting. An example workflow in the form of a jupyter notebook is included in the examples folder. 
+The fitter object uses spectroscopy and photometry of a host galaxy before and/or long after a supernova by the *Roman Space Telescope* to physically model the host. This can be used to subtract the host spectrum from the supernova spectrum, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting. An example workflow in the form of a jupyter notebook is included in the examples folder. 
+
+While sloeginphys is written for *Nancy Grace Roman*, the code can be adapted to any slitless spectrograph as long as a simulator is provided. If you are interested in adding a slitless spectrograph to sloeginphys, please feel free to reach out with a request or do it yourself and submit a pull request. 
 
 Some choices made when performing the fit will decrease the time cost but also decrease the precision and accuracy. Other choices will do the opposite—increasing time while also increasing precision and accuracy. These choices are as follows:
 
@@ -18,6 +20,7 @@ one_sed: If True, each pixel is assumed to have the same spectrum, so only one s
 sim_code: Choice to use either BC03 (GALAXEV) or FSPS to simulate the SEDs. BC03 allows for fewer inputs and provides fewer outputs, but runs faster. FSPS runs slower, but allows a great diversity of input parameters and outputs many useful quantities. Only FSPS can fit for metallicity at this point. Note: the number of FSPS parameters to fit may also impact runtime. 
 
 Simulator Options
+-----------------
 
 BC03 and FSPS behave differently in execution. Because BC03 uses a smaller number of input parameters, all parameters based on the inputs will automatically be fit for. FSPS can have an enormous number of input parameters, so you must select which ones you want to run. Further specific notes are below. 
 
