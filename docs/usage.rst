@@ -73,7 +73,13 @@ check_config(config_file)
 
 This function checks a configuration file to ensure the file is valid. It performs various type checks, limit checks, and others. If the file is not valid, it will return an assertion error with details on the problem parameter and what the parameter should be. This function is run as part of the fit function, but can also be run on any given configuration file if you want to check a file before running. 
 
+find_z(ra, dec, method)
+--------
+
+This function searches the database for any redshift measurements correpsonding to the given SN or coordinates and returns all available measurements. If a specific method is given, such a "phot_z", the function will only check to see if that redshift measurement is available. For a complete list of redshift options, see the configuration options section at the end of this document. 
+
 The fit function
+================
 
 Input data 
 ----------
@@ -116,6 +122,10 @@ Residuals not finite at initial point – this is usually an error that results 
 
 
 Running tests
+-------------
+
+Tests are provided within the package in the "tests" folder. Every test in "sloeginphys_test.py" must pass for the package to be considered operational. On the other hand, "sim_code.py" offers tests specific to BC03 and FSPS. Either the first two or the last two tests, or all four, must pass for the code to be considered operational. If you prefer one simulation code or the other, these tests can help you evaluate if you have installed that code correctly. "data_test.py" simply tests that the expected data files are present. If any of these tests fail, something is wrong with your installation of sloeginphys. 
+
 
 Configuration options
 =====================
