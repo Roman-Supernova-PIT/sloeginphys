@@ -84,7 +84,7 @@ The fit function
 Input data 
 ----------
 
-The input data is divided in spectroscopic and photometric data. If using the NERSC database, data can be pulled automatically based on coordinates and date, or specifically using a list of file paths and/or UUIDs. If using local data, each can be provided as a path to the files in the form of a string or as a list of strings that are complete paths to the desired files. Set to an empty list ([]) or None if not using this type of data for local machines, and an empty list for nonlocal data. The program will not proceed if no valid data is provided. Note that files must be in fits or asdf format when running locally. 
+The input data is divided in spectroscopic and photometric data. If using the NERSC database, data can be pulled automatically based on coordinates and date, or specifically using a list of file paths and/or UUIDs. If using local data, each can be provided as a path to the files in the form of a string or as a list of strings that are complete paths to the desired files. Set to an empty list ([]) or None if not using this type of data for local machines, and an empty list for nonlocal data. The program will not proceed if no valid data is provided. Note that files must be in fits or asdf format when running locally, and that you may not mix asdf and fits files. 
 
 Initial guess
 -------------
@@ -119,6 +119,8 @@ Common errors
 -------------
 
 Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses. 
+
+Divide by zero - this may result from unrealistically small values in uncertainty, but can also show up if mixing fits and asdf files in the input. If running locally, check the uncertainty nunbers. If running nonlocally, consider excluding the problem image. 
 
 
 Running tests
