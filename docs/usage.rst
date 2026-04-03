@@ -89,7 +89,7 @@ The input data is divided in spectroscopic and photometric data. If using the NE
 Initial guess
 -------------
 
-The initial guess is a vector containing initial guesses for the desired fit parameters. The length must match what the program expects based on the number of fit parameters and the number of pixels. If this is not the case, the program will stop and log an error. 
+The initial guess is a vector containing initial guesses for the desired fit parameters. The length must match what the program expects based on the number of fit parameters and the number of pixels. If this is not the case, the program will stop and log an error. The order of the parameters matches their order in the example configuration file. So if you were fitting for tage and logzsol, your initial guess would be of the form [tage, logzsol]
 
 Configuration file
 ------------------
@@ -118,7 +118,7 @@ For the most part, error messages produced by the code will be written to the lo
 Common errors
 -------------
 
-Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses. 
+Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses. This result will also appear if you attempt to set age to be zero in the initial guess. 
 
 Divide by zero - this may result from unrealistically small values in uncertainty, but can also show up if mixing fits and asdf files in the input. If running locally, check the uncertainty nunbers. If running nonlocally, consider excluding the problem image. 
 
