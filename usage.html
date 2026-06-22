@@ -5,12 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Usage &#8212; sloeginphys 0.1.dev1+ge4597a6c3 documentation</title>
+    <title>Usage &#8212; sloeginphys 0.1.dev1+g3d3daf007 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=5a6b8c39" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=f3bc516d" />
     <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
-    <script src="_static/documentation_options.js?v=9cc2ee90"></script>
+    <script src="_static/documentation_options.js?v=4ae8f224"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -100,13 +100,15 @@
 <h1>Usage<a class="headerlink" href="#usage" title="Link to this heading">¶</a></h1>
 <section id="fitter-physically-modeling-host-galaxies">
 <h2>Fitter: Physically modeling host galaxies<a class="headerlink" href="#fitter-physically-modeling-host-galaxies" title="Link to this heading">¶</a></h2>
-<p>The fitter object uses spectroscopy and photometry of a host galaxy before a supernova to physically model the host. This can be used to subtract the host spectrum from the supernova spectrum, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting. An example workflow in the form of a jupyter notebook is included in the examples folder.</p>
+<p>The fitter object uses spectroscopy and photometry of a host galaxy before and/or long after a supernova by the <em>Roman Space Telescope</em> to physically model the host. This can be used to subtract the host spectrum from the supernova spectrum, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting. An example workflow in the form of a jupyter notebook is included in the examples folder.</p>
+<p>While sloeginphys is written for <em>Nancy Grace Roman</em>, the code can be adapted to any slitless spectrograph as long as a simulator is provided. If you are interested in adding a slitless spectrograph to sloeginphys, please feel free to reach out with a request or do it yourself and submit a pull request.</p>
 <p>Some choices made when performing the fit will decrease the time cost but also decrease the precision and accuracy. Other choices will do the opposite—increasing time while also increasing precision and accuracy. These choices are as follows:</p>
 <p>method: The frequentist method to use when running the initial fit. Some choices will run faster or more accurately than others. Current default is the trf method from scipy.least_squares, which is generally fast and reliable. Other recommended methods are lm from least_squares and Nelder-Mead from optimize.</p>
 <p>use_bayes: If True, the full Bayesian fit will provide a more complete exploration of the parameter space and give a better uncertainty estimation. This can take a lot of time. If False, only the frequentist fit results are returned but the function runs much faster. Note that right now use_bayes=True is NOT supported.</p>
 <p>one_sed: If True, each pixel is assumed to have the same spectrum, so only one simulation is performed in each pass. This saves time, especially in cases where the host galaxy covers a large number of pixels, but means that local variations in the galaxy are not accounted for. If False, each pixel is assigned a unique SED. This requires more simulations to be run, but allows the galaxy to vary more between locations. The use of multithreading has decreased the amount of time to generate the unique SEDs but with large galaxies or if running on a local machine with a small number of cores this could still be a bottleneck.</p>
 <p>sim_code: Choice to use either BC03 (GALAXEV) or FSPS to simulate the SEDs. BC03 allows for fewer inputs and provides fewer outputs, but runs faster. FSPS runs slower, but allows a great diversity of input parameters and outputs many useful quantities. Only FSPS can fit for metallicity at this point. Note: the number of FSPS parameters to fit may also impact runtime.</p>
-<p>Simulator Options</p>
+<section id="simulator-options">
+<h3>Simulator Options<a class="headerlink" href="#simulator-options" title="Link to this heading">¶</a></h3>
 <p>BC03 and FSPS behave differently in execution. Because BC03 uses a smaller number of input parameters, all parameters based on the inputs will automatically be fit for. FSPS can have an enormous number of input parameters, so you must select which ones you want to run. Further specific notes are below.</p>
 <p>BC03:</p>
 <ul class="simple">
@@ -122,6 +124,7 @@
 <li><p>Not setting any variable in the section fsps_params will leave it as the default</p></li>
 <li><p>Not setting any variable in the section fsps_optional will mean it is fit for. To keep any variable in this section fixed, that is, to NOT fit it, set either to a chosen value or the string “default” to keep it as the default variable.</p></li>
 </ul>
+</section>
 </section>
 <section id="the-fitter-object">
 <h2>The Fitter object<a class="headerlink" href="#the-fitter-object" title="Link to this heading">¶</a></h2>
@@ -149,15 +152,21 @@
 <section id="check-config-config-file">
 <h3>check_config(config_file)<a class="headerlink" href="#check-config-config-file" title="Link to this heading">¶</a></h3>
 <p>This function checks a configuration file to ensure the file is valid. It performs various type checks, limit checks, and others. If the file is not valid, it will return an assertion error with details on the problem parameter and what the parameter should be. This function is run as part of the fit function, but can also be run on any given configuration file if you want to check a file before running.</p>
-<p>The fit function</p>
 </section>
+<section id="find-z-ra-dec-method">
+<h3>find_z(ra, dec, method)<a class="headerlink" href="#find-z-ra-dec-method" title="Link to this heading">¶</a></h3>
+<p>This function searches the database for any redshift measurements correpsonding to the given SN or coordinates and returns all available measurements. If a specific method is given, such a “phot_z”, the function will only check to see if that redshift measurement is available. For a complete list of redshift options, see the configuration options section at the end of this document.</p>
+</section>
+</section>
+<section id="the-fit-function">
+<h2>The fit function<a class="headerlink" href="#the-fit-function" title="Link to this heading">¶</a></h2>
 <section id="input-data">
 <h3>Input data<a class="headerlink" href="#input-data" title="Link to this heading">¶</a></h3>
-<p>The input data is divided in spectroscopic and photometric data. If using the NERSC database, data can be pulled automatically based on coordinates and date, or specifically using a list of file paths and/or UUIDs. If using local data, each can be provided as a path to the files in the form of a string or as a list of strings that are complete paths to the desired files. Set to an empty list ([]) or None if not using this type of data for local machines, and an empty list for nonlocal data. The program will not proceed if no valid data is provided. Note that files must be in fits or asdf format when running locally.</p>
+<p>The input data is divided in spectroscopic and photometric data. If using the NERSC database, data can be pulled automatically based on coordinates and date, or specifically using a list of file paths and/or UUIDs. If using local data, each can be provided as a path to the files in the form of a string or as a list of strings that are complete paths to the desired files. Set to an empty list ([]) or None if not using this type of data for local machines, and an empty list for nonlocal data. The program will not proceed if no valid data is provided. Note that files must be in fits or asdf format when running locally, and that you may not mix asdf and fits files.</p>
 </section>
 <section id="initial-guess">
 <h3>Initial guess<a class="headerlink" href="#initial-guess" title="Link to this heading">¶</a></h3>
-<p>The initial guess is a vector containing initial guesses for the desired fit parameters. The length must match what the program expects based on the number of fit parameters and the number of pixels. If this is not the case, the program will stop and log an error.</p>
+<p>The initial guess is a vector containing initial guesses for the desired fit parameters. The length must match what the program expects based on the number of fit parameters and the number of pixels. If this is not the case, the program will stop and log an error. The order of the parameters matches their order in the example configuration file. So if you were fitting for tage and logzsol, your initial guess would be of the form [tage, logzsol]</p>
 </section>
 <section id="configuration-file">
 <h3>Configuration file<a class="headerlink" href="#configuration-file" title="Link to this heading">¶</a></h3>
@@ -177,8 +186,12 @@
 </section>
 <section id="common-errors">
 <h3>Common errors<a class="headerlink" href="#common-errors" title="Link to this heading">¶</a></h3>
-<p>Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses.</p>
-<p>Running tests</p>
+<p>Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses. This result will also appear if you attempt to set age to be zero in the initial guess.</p>
+<p>Divide by zero - this may result from unrealistically small values in uncertainty, but can also show up if mixing fits and asdf files in the input. If running locally, check the uncertainty nunbers. If running nonlocally, consider excluding the problem image.</p>
+</section>
+<section id="running-tests">
+<h3>Running tests<a class="headerlink" href="#running-tests" title="Link to this heading">¶</a></h3>
+<p>Tests are provided within the package in the “tests” folder. Every test in “sloeginphys_test.py” must pass for the package to be considered operational. On the other hand, “sim_code.py” offers tests specific to BC03 and FSPS. Either the first two or the last two tests, or all four, must pass for the code to be considered operational. If you prefer one simulation code or the other, these tests can help you evaluate if you have installed that code correctly. “data_test.py” simply tests that the expected data files are present. If any of these tests fail, something is wrong with your installation of sloeginphys.</p>
 </section>
 </section>
 <section id="configuration-options">

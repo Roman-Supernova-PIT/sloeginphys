@@ -5,7 +5,9 @@ Usage
 Fitter: Physically modeling host galaxies
 =========================================
 
-The fitter object uses spectroscopy and photometry of a host galaxy before a supernova to physically model the host. This can be used to subtract the host spectrum from the supernova spectrum, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting. An example workflow in the form of a jupyter notebook is included in the examples folder. 
+The fitter object uses spectroscopy and photometry of a host galaxy before and/or long after a supernova by the *Roman Space Telescope* to physically model the host. This can be used to subtract the host spectrum from the supernova spectrum, allowing for extraction of the supernova spectrum; or to learn about the properties of the host galaxy local to the supernova. This documentation explains how to perform this fit and use various utility functions around the fitting. An example workflow in the form of a jupyter notebook is included in the examples folder. 
+
+While sloeginphys is written for *Nancy Grace Roman*, the code can be adapted to any slitless spectrograph as long as a simulator is provided. If you are interested in adding a slitless spectrograph to sloeginphys, please feel free to reach out with a request or do it yourself and submit a pull request. 
 
 Some choices made when performing the fit will decrease the time cost but also decrease the precision and accuracy. Other choices will do the opposite—increasing time while also increasing precision and accuracy. These choices are as follows:
 
@@ -18,6 +20,7 @@ one_sed: If True, each pixel is assumed to have the same spectrum, so only one s
 sim_code: Choice to use either BC03 (GALAXEV) or FSPS to simulate the SEDs. BC03 allows for fewer inputs and provides fewer outputs, but runs faster. FSPS runs slower, but allows a great diversity of input parameters and outputs many useful quantities. Only FSPS can fit for metallicity at this point. Note: the number of FSPS parameters to fit may also impact runtime. 
 
 Simulator Options
+-----------------
 
 BC03 and FSPS behave differently in execution. Because BC03 uses a smaller number of input parameters, all parameters based on the inputs will automatically be fit for. FSPS can have an enormous number of input parameters, so you must select which ones you want to run. Further specific notes are below. 
 
@@ -70,17 +73,23 @@ check_config(config_file)
 
 This function checks a configuration file to ensure the file is valid. It performs various type checks, limit checks, and others. If the file is not valid, it will return an assertion error with details on the problem parameter and what the parameter should be. This function is run as part of the fit function, but can also be run on any given configuration file if you want to check a file before running. 
 
+find_z(ra, dec, method)
+--------
+
+This function searches the database for any redshift measurements correpsonding to the given SN or coordinates and returns all available measurements. If a specific method is given, such a "phot_z", the function will only check to see if that redshift measurement is available. For a complete list of redshift options, see the configuration options section at the end of this document. 
+
 The fit function
+================
 
 Input data 
 ----------
 
-The input data is divided in spectroscopic and photometric data. If using the NERSC database, data can be pulled automatically based on coordinates and date, or specifically using a list of file paths and/or UUIDs. If using local data, each can be provided as a path to the files in the form of a string or as a list of strings that are complete paths to the desired files. Set to an empty list ([]) or None if not using this type of data for local machines, and an empty list for nonlocal data. The program will not proceed if no valid data is provided. Note that files must be in fits or asdf format when running locally. 
+The input data is divided in spectroscopic and photometric data. If using the NERSC database, data can be pulled automatically based on coordinates and date, or specifically using a list of file paths and/or UUIDs. If using local data, each can be provided as a path to the files in the form of a string or as a list of strings that are complete paths to the desired files. Set to an empty list ([]) or None if not using this type of data for local machines, and an empty list for nonlocal data. The program will not proceed if no valid data is provided. Note that files must be in fits or asdf format when running locally, and that you may not mix asdf and fits files. 
 
 Initial guess
 -------------
 
-The initial guess is a vector containing initial guesses for the desired fit parameters. The length must match what the program expects based on the number of fit parameters and the number of pixels. If this is not the case, the program will stop and log an error. 
+The initial guess is a vector containing initial guesses for the desired fit parameters. The length must match what the program expects based on the number of fit parameters and the number of pixels. If this is not the case, the program will stop and log an error. The order of the parameters matches their order in the example configuration file. So if you were fitting for tage and logzsol, your initial guess would be of the form [tage, logzsol]
 
 Configuration file
 ------------------
@@ -109,10 +118,16 @@ For the most part, error messages produced by the code will be written to the lo
 Common errors
 -------------
 
-Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses. 
+Residuals not finite at initial point – this is usually an error that results from one of the pixels in the error file being set to zero, leading to a divide by zero error. It may also result from the initial guess being very far off, which can cause an underflow error. First check for zeros in the error file, then consider trying some other initial guesses. This result will also appear if you attempt to set age to be zero in the initial guess. 
+
+Divide by zero - this may result from unrealistically small values in uncertainty, but can also show up if mixing fits and asdf files in the input. If running locally, check the uncertainty nunbers. If running nonlocally, consider excluding the problem image. 
 
 
 Running tests
+-------------
+
+Tests are provided within the package in the "tests" folder. Every test in "sloeginphys_test.py" must pass for the package to be considered operational. On the other hand, "sim_code.py" offers tests specific to BC03 and FSPS. Either the first two or the last two tests, or all four, must pass for the code to be considered operational. If you prefer one simulation code or the other, these tests can help you evaluate if you have installed that code correctly. "data_test.py" simply tests that the expected data files are present. If any of these tests fail, something is wrong with your installation of sloeginphys. 
+
 
 Configuration options
 =====================
