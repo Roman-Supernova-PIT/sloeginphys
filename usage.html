@@ -5,12 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Usage &#8212; sloeginphys 0.1.dev1+g3d3daf007 documentation</title>
+    <title>Usage &#8212; sloeginphys 0.1.dev1+g3deef6ba4 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=5a6b8c39" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=f3bc516d" />
     <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
-    <script src="_static/documentation_options.js?v=4ae8f224"></script>
+    <script src="_static/documentation_options.js?v=dfb2c7c1"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -216,13 +216,13 @@
 <h3>output<a class="headerlink" href="#output" title="Link to this heading">¶</a></h3>
 <p>Control which outputs you are interested in</p>
 <p>return_fit (bool) – choice to return the best fit parameters with the parameter dictionary for context and the chi^2 value for the best fit. Default is True.</p>
-<p>save_fit (bool) – choice to save the map of best fit parameters. Default is False.</p>
+<p>save_fit (bool) – choice to save the map of best fit parameters. Default is False. If local=True, always in asdf format, regardless of input.</p>
 <p>fit_name (string) – name of saved fit map. Default is best_fit_properties. Only used if local=True.</p>
 <p>return_image (bool) – choice to return best fit image. Default is False.</p>
-<p>save_image (bool) – choice to save best fit image to a fits file. Default is False.</p>
+<p>save_image (bool) – choice to save best fit image to a fits file. Default is False. If local=True, always in asdf format, regardless of input.</p>
 <p>image_name (string, optional) – name to give saved best image file. Default is best_fit.fits. Only used if local=True</p>
 <p>return_subtracted (bool) – choice to return the best fit subtracted from the image with the supernova present. Default is False.</p>
-<p>save_subtracted (bool) – choice to save the best fit subtracted from the image with the supernova present. Default is False</p>
+<p>save_subtracted (bool) – choice to save the best fit subtracted from the image with the supernova present. Default is False. If local=True, always in asdf format, regardless of input.</p>
 <p>subtracted_name (string, optional) – name to give the saved subtracted image file. Default is best_fit_subtracted.fits. Only used if local=True</p>
 <p>full_bayes (bool) – choice to return the full Bayesian analysis of the fit, including full chains. If False, still returns the best estimations of the parameters from the Bayesian fit. Default is False.</p>
 </section>
