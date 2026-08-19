@@ -165,19 +165,19 @@ Control which outputs you are interested in
 
 return_fit (bool) – choice to return the best fit parameters with the parameter dictionary for context and the chi^2 value for the best fit. Default is True. 
 
-save_fit (bool) – choice to save the map of best fit parameters. Default is False. 
+save_fit (bool) – choice to save the map of best fit parameters. Default is False. If local=True, always in asdf format, regardless of input. 
 
 fit_name (string) – name of saved fit map. Default is best_fit_properties. Only used if local=True. 
 
 return_image (bool) – choice to return best fit image. Default is False. 
 
-save_image (bool) – choice to save best fit image to a fits file. Default is False. 
+save_image (bool) – choice to save best fit image to a fits file. Default is False. If local=True, always in asdf format, regardless of input. 
 
 image_name (string, optional) – name to give saved best image file. Default is best_fit.fits. Only used if local=True
 
 return_subtracted (bool) – choice to return the best fit subtracted from the image with the supernova present. Default is False. 
 
-save_subtracted (bool) – choice to save the best fit subtracted from the image with the supernova present. Default is False
+save_subtracted (bool) – choice to save the best fit subtracted from the image with the supernova present. Default is False. If local=True, always in asdf format, regardless of input. 
 
 subtracted_name (string, optional) – name to give the saved subtracted image file. Default is best_fit_subtracted.fits. Only used if local=True
 
