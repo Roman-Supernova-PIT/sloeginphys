@@ -26,7 +26,7 @@ BC03 and FSPS behave differently in execution. Because BC03 uses a smaller numbe
 
 BC03: 
 
-Bruzual and Charlot (2003)'s program, BC03, also known as GALAXEV, is available for download `here <https://www.bruzual.org/bc03/>`_ , with documentation `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ . Installation instructions for cshell are in section 3.1 of the documenation. For bash, instead of "setenv bc03 /full path to GALAXEV src directory", use "export bc03='/full path to GALAXEV src directory'" and instead of "source ./.bc_cshrc" use "source ./.bc_bash". 
+Bruzual and Charlot (2003)'s program, BC03, also known as GALAXEV, is available for download `here <https://www.bruzual.org/bc03/>`_ , with documentation `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ . Installation instructions for cshell are in section 3.1 of the documenation. For bash, instead of "setenv bc03 /full path to GALAXEV src directory", use "export bc03='/full path to GALAXEV src directory'" and instead of "source ./.bc_cshrc" use "source ./.bc_bash". Some additional notes on using BC03 with sloeginphys are given below. 
 
 * For SFH 1 or -1, ensure gas recycling is set and that epsilon is included in the initial guess. 
 * For SFH 6, file names cannot be iterated over. In general this SED choice is not recommended. 
@@ -34,6 +34,8 @@ Bruzual and Charlot (2003)'s program, BC03, also known as GALAXEV, is available 
 * Right now, the command line outputs for BC03 are redirected into a log file named bc03_logfile.txt. This file will be saved in your working directory if you want to read it. 
 
 FSPS:
+
+Python Flexible Stellar Population Synthesis (FSPS) is available through pip and requires additional reference files. Full installation directions are available `here <https://dfm.io/python-fsps/current/installation/>`_, with documentation on the program `here <https://dfm.io/python-fsps/current/stellarpop_api/>`_. Some additional notes on using FSPS with sloeginphys are given below. 
 
 * SFH 2 and 3 are not currently supported. SFH 2 is not supported by pyFSPS and so is unlikely to become available in the future. 
 * Any parameters that are not used by the IMF, SFH, dust, and other selections will not be fit for. Ensure that your desired fittable parameters match your non-iterable parameter choices. 
