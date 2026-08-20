@@ -26,6 +26,8 @@ BC03 and FSPS behave differently in execution. Because BC03 uses a smaller numbe
 
 BC03: 
 
+Bruzual and Charlot (2003)'s program, BC03, also known as GALAXEV, is available for download `here <https://www.bruzual.org/bc03/>`_ , with documentation `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ . Installation instructions for cshell are in section 3.1 of the documenation. For bash, instead of "setenv bc03 /full path to GALAXEV src directory", use "export bc03='/full path to GALAXEV src directory'" and instead of "source ./.bc_cshrc" use "source ./.bc_bash". 
+
 * For SFH 1 or -1, ensure gas recycling is set and that epsilon is included in the initial guess. 
 * For SFH 6, file names cannot be iterated over. In general this SED choice is not recommended. 
 * SFH 7 is not currently supported. 
@@ -126,7 +128,7 @@ Divide by zero - this may result from unrealistically small values in uncertaint
 Running tests
 -------------
 
-Tests are provided within the package in the "tests" folder. Every test in "sloeginphys_test.py" must pass for the package to be considered operational. On the other hand, "sim_code.py" offers tests specific to BC03 and FSPS. Either the first two or the last two tests, or all four, must pass for the code to be considered operational. If you prefer one simulation code or the other, these tests can help you evaluate if you have installed that code correctly. "data_test.py" simply tests that the expected data files are present. If any of these tests fail, something is wrong with your installation of sloeginphys. 
+Tests are provided within the package in the "tests" folder. Tests must be run from the top directory of the package. Every test in "sloeginphys_test.py" must pass for the package to be considered operational. On the other hand, "sim_code.py" offers tests specific to BC03 and FSPS. Either the first two or the last two tests, or all four, must pass for the code to be considered operational. If you prefer one simulation code or the other, these tests can help you evaluate if you have installed that code correctly. "data_test.py" simply tests that the expected data files are present. If any of these tests fail, something is wrong with your installation of sloeginphys. 
 
 
 Configuration options
