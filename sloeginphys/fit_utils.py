@@ -81,10 +81,12 @@ def _overlap(ref_wcs, data_wcs, xmax, ymax, pixPos, buffer, spec, data, band, sc
     else:
         return(pixel_list, new_seg_data)
 
-def _make_SED_bc03(working_dir, one_sed, theta, plength, pixPos, ised_dir, csp_params, recyc, file_names, threads):
+def _make_SED_bc03(working_dir, one_sed, theta, plength, pixPos, ised_dir, csp_params, recyc, file_names, threads, delay_params):
     """Make an SED using BC03"""
     dust=csp_params[3]
     sfh=csp_params[4]
+    delay_time=delay_params[0]
+    delay_count=delay_params[1]
     if(one_sed==True):
         params=theta[int(0 * plength) : int((0 + 1) * plength)]
         age_params = [params[-1]]
@@ -94,39 +96,39 @@ def _make_SED_bc03(working_dir, one_sed, theta, plength, pixPos, ised_dir, csp_p
         # Make the spectra
         if dust == False:
             if sfh == 1 or sfh == -1:
-                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, recyc=recyc, delete_in=True, full_name=working_dir+"test.txt")
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, recyc=recyc, delete_in=True, full_name=working_dir+"test.txt", delay_time=delay_time, delay_count=delay_count)
             elif sfh == 6:
-                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names], age_params, delete_in=True, full_name=working_dir+"test.txt")
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names], age_params, delete_in=True, full_name=working_dir+"test.txt", delay_time=delay_time, delay_count=delay_count)
             else:
-                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, delete_in=True, full_name=working_dir+"test.txt")
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, delete_in=True, full_name=working_dir+"test.txt", delay_time=delay_time, delay_count=delay_count)
         else:
             dust_params = list(sfh_params[-2:])
             sfh_params = list(sfh_params[:-2])
             if sfh == 1 or sfh == -1:
-                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, recyc=recyc,delete_in=True, full_name=working_dir+"test.txt")
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, recyc=recyc,delete_in=True, full_name=working_dir+"test.txt", delay_time=delay_time, delay_count=delay_count)
             elif sfh == 6:
-                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names], age_params, dust_params=dust_params, delete_in=True, full_name=working_dir+"test.txt")
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names], age_params, dust_params=dust_params, delete_in=True, full_name=working_dir+"test.txt", delay_time=delay_time, delay_count=delay_count)
             else:
-                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, delete_in=True, full_name=working_dir+"test.txt")
+                make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, delete_in=True, full_name=working_dir+"test.txt", delay_time=delay_time, delay_count=delay_count)
     else:
         def worker(age_params, sfh_params, spec_name, csp_name, full_name):
             #Make the spectra
             if dust == False:
                 if sfh == 1 or sfh == -1:
-                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, recyc=recyc, delete_in=True, full_name=full_name)
+                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, recyc=recyc, delete_in=True, full_name=full_name, delay_time=delay_time, delay_count=delay_count)
                 elif sfh == 6:
-                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names[i]], age_params, delete_in=True, full_name=full_name)
+                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names[i]], age_params, delete_in=True, full_name=full_name, delay_time=delay_time, delay_count=delay_count)
                 else:
-                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, delete_in=True, full_name=full_name)
+                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, delete_in=True, full_name=full_name, delay_time=delay_time, delay_count=delay_count)
             else:
                 dust_params = list(sfh_params[-2:])
                 sfh_params = list(sfh_params[:-2])
                 if sfh == 1 or sfh == -1:
-                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, recyc=recyc,delete_in=True, full_name=full_name)
+                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, recyc=recyc,delete_in=True, full_name=full_name, delay_time=delay_time, delay_count=delay_count)
                 elif sfh == 6:
-                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names[i]], age_params, dust_params=dust_params, delete_in=True, full_name=full_name)
+                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, [file_names[i]], age_params, dust_params=dust_params, delete_in=True, full_name=full_name, delay_time=delay_time, delay_count=delay_count)
                 else:
-                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, delete_in=True, full_name=full_name)
+                    make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=dust_params, delete_in=True, full_name=full_name, delay_time=delay_time, delay_count=delay_count)
         with ThreadPoolExecutor(max_workers=threads) as executor:
             for i in range(0, len(pixPos)):
                 params = theta[int(i * plength) : int((i + 1) * plength)]
