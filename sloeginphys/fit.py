@@ -559,6 +559,8 @@ class fitter:
             dust = config.value("params.bc03_params.dust")
             recyc = config.value("params.bc03_params.recyc")
             file_names = config.value("params.bc03_params.file_names")
+            delay_time = config.value("params.bc03_params.delay_time")
+            delay_count = config.value("params.bc03_params.delay_count")
             # Check that universal parameters are present and valid
             assert isinstance(ised_dir, str), "Please provide ised directory as a string"
             assert os.path.isdir(ised_dir), "ised_dir is not an existing directory" 
@@ -569,6 +571,10 @@ class fitter:
             assert isinstance(sfh, int), "Please provide SFH choice as an integer"
             if dust != None:
                 assert isinstance(dust, bool), "Please provide dust as a boolean"
+            if delay_time != None:
+                assert isinstance(delay_time, float) or isinstance(delay_time, int), "Please provide delay_time as a float or int"
+            if delay_count != None:
+                assert isinstance(delay_count, int), "Please provide delay_count as an int"
             # Check that SFH is valid and supported
             assert sfh in [0, 1, -1, 2, 3, 4, 5, 6], "SFH is invalid or not supported"
             # Check that parameter-dependent values are valid
@@ -957,6 +963,13 @@ class fitter:
             dust = config.value("params.bc03_params.dust")
             recyc = config.value("params.bc03_params.recyc")
             file_names = config.value("params.bc03_params.file_names")
+            delay_time = config.value("params.bc03_params.delay_time")
+            delay_count = config.value("params.bc03_params.delay_count")
+            if delay_time==None:
+                delay_time=0.5
+            if delay_count==None:
+                delay_count=10
+            delay_params=[delay_time, delay_count]
             # Combine parameters to make the csp_params list used later
             csp_params = [lib, metallicity, imf, dust, sfh]
             # Check theta length
@@ -1792,7 +1805,7 @@ class fitter:
                     file_names
                 except:
                     file_names=None
-                _make_SED_bc03(working_dir, one_sed, theta, plength, self.pixPos, ised_dir, csp_params, recyc, file_names, threads)
+                _make_SED_bc03(working_dir, one_sed, theta, plength, self.pixPos, ised_dir, csp_params, recyc, file_names, threads, delay_params)
             elif sim_code=="FSPS":
                 _make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, self.pixPos, threads)
             #Sum likelihoods for the spectroscopy data
@@ -1915,7 +1928,7 @@ class fitter:
                 file_names
             except:
                 file_names=None
-            _make_SED_bc03(working_dir, one_sed, best_fit, plength, self.pixPos, ised_dir, csp_params, recyc, file_names, threads)
+            _make_SED_bc03(working_dir, one_sed, best_fit, plength, self.pixPos, ised_dir, csp_params, recyc, file_names, threads, delay_params)
         elif sim_code=="FSPS":
             _make_SED_fsps(working_dir, one_sed, best_fit, param_dict, plength, sp, self.pixPos, threads)
         #Add the spectra to the simulator object 
