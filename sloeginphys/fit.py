@@ -1,12 +1,14 @@
 __all__=["fitter"]
 
 import os
+import subprocess
 import glob
 import time
 import datetime
-import inspect
+import pathlib
 import numpy as np
 import multiprocessing
+import asdf
 
 from scipy.optimize import least_squares, minimize
 import scipy.interpolate as spi
@@ -26,12 +28,13 @@ from snappl.image import Image
 from snappl.segmap import SegmentationMap
 from snappl.dbclient import SNPITDBClient
 
+from roman_datamodels import datamodels as dm
 from roman_wfss.modeling.linear import WFSSImageSimulator_NERSC
 
 from .bc03utils import make_spec
 from .fit_utils import _overlap, _make_SED_bc03, _make_SED_fsps, _translate_SED
 
-os.environ["SPS_HOME"] = "/global/u1/a/aisaacs/FSPS/"
+os.environ["SPS_HOME"] = "/home/amisaacs/FSPS/"
 try:
     import fsps
 except:
@@ -50,7 +53,7 @@ class fitter:
             Whether to run locally (pulling files from your own machine or local directories) or non-locally (pulling information from the Roman database). Default is False, meaning files will be pulled from the Roman database
         segmap: 2d array or string, optional 
             If local, this is required, and is the path to the segmentation map corresponding to the direct image. If non-local, this is NOT required and SHOULD be pulled automatically, but CAN be provided for testing or other unusual circumstances
-        sn: UUID of the supernova/transient of interest. May be provided instead of RA and DEC. 
+        sn_id: UUID of the supernova/transient of interest. May be provided instead of RA and DEC. 
         ra: float, optional
             Right ascension of the object of interest, e.g. the host galaxy. Can also be added later
         dec: float, optional 
@@ -84,81 +87,112 @@ class fitter:
             self.seg_map=segmap
             self.sn_im=sn_image
             #Retrieve schema files. This is only relevant for asdf files
-            package_dir=os.path.dirname(inspect.getfile(sloeginphys))
-            dir_schema=package_dir+"/data/roman_schema_direct.yaml"
-            seg_schema=package_dir+"/data/roman_schema_segmap.yaml"
-            sn_schema=package_dir+"/data/roman_schema_sn.yaml"
+            #package_dir=os.path.dirname(inspect.getfile(sloeginphys))
+            #dir_schema=package_dir+"/data/roman_schema_direct.yaml"
+            #seg_schema=package_dir+"/data/roman_schema_segmap.yaml"
+            #sn_schema=package_dir+"/data/roman_schema_sn.yaml"
             #Check direct image
-            try:
-                #Open and retrieve the data if the provided file is a fits file
-                dir_im_temp=fits.open(self.dir_im)
-                #Retrieve data from direct image
-                self.dir_im_data=dir_im_temp[1].data
-                self.dir_im_hdr=dir_im_temp[1].header
-                self.dir_im_band=self.dir_im_hdr["FILTER"]
-                if (self.dir_im_band not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
-                    self.log.error("Filter "+self.dir_im_band+" is not a valid filter")
+            ext=self.dir_im.split(".")[-1]
+            if(ext=="fits"):
+                try:
+                    #Open and retrieve the data if the provided file is a fits file
+                    dir_im_temp=fits.open(self.dir_im)
+                    #Retrieve data from direct image
+                    self.dir_im_data=dir_im_temp[1].data
+                    self.dir_im_hdr=dir_im_temp[1].header
+                    self.dir_im_band=self.dir_im_hdr["FILTER"]
+                    dir_im_temp.close()
+                except:
+                    self.log.error("fits file provided as direct image is invalid. Please ensure the direct image contains data and a filter (band/optical_element)")
                     return
-                dir_im_temp.close()
-            except:
+                else:
+                    #Make sure the filter is valid
+                    if (self.dir_im_band not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
+                        self.log.error("Filter "+self.dir_im_band+" is not a valid filter. Please provide a direct image with a valid filter.")
+                        return
+            elif(ext=="asdf"):
                 try: 
                     #Open and retrieve the data if the provided file is an asdf file
-                    dir_im_temp=asdf.open(self.dir_im, custom_schema=dir_schema)
-                    self.dir_im_data=dir_im_temp.search("data", type_="NDArrayType").node
+                    dir_im_temp=asdf.open(self.dir_im, lazy_load=False)
+                    self.dir_im_data=dir_im_temp.search("data", type_="ndarray").node
                     self.dir_im_band=dir_im_temp.search("optical_element", type_="str").node
-                    if (self.dir_im_band not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
-                        self.log.error("Filter "+self.dir_im_band+" is not a valid filter")
-                        return
                     dir_im_temp.close()
                 except: 
-                    self.log.error("Direct image is invalid. Direct image must be an extant fits or asdf file with all relevant header keywords provided.")
+                    self.log.error("asdf file provided as direct image is invalid. Please ensure the direct image file contains data and an optical_element (filter/band).")
                     return
+                else:
+                    #Make sure the filter is valid
+                    if (self.dir_im_band not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
+                        self.log.error("Filter "+self.dir_im_band+" is not a valid filter. Please provide a direct image with a valid filter.")
+                        return
+            else:
+                self.log.error("Direct image is not a fits or asdf file. Please provide a direct image in one of these formats.")
+                return
             #Check segmentation map
-            try:
-                seg_map_temp=fits.open(self.seg_map)
-                #Retrieve data from the segmentation map if the provided file is a fits file
-                self.seg_map_hdr=seg_map_temp[0].header
-                self.seg_map_data=seg_map_temp[0].data
-                #Extra copy holds the original data so another RA/DEC can be used later
-                self.seg_map_data_orig=seg_map_temp[0].data
-                self.seg_wcs=WCS(self.seg_map_hdr)
-                seg_map_temp.close()
-            except:
-                try: 
-                    seg_map_temp=asdf.open(self.seg_map, custom_schema=seg_schema)
-                    #Retrieve data from the segmentation map if the provided file is an asdf file
-                    self.seg_map_data=seg_map_temp.search("data", type_="NDArrayType").node
+            ext=self.seg_map.split(".")[-1]
+            if(ext=="fits"):
+                try:
+                    #Open segmentation map if it is a fits file
+                    seg_map_temp=fits.open(self.seg_map)
+                    #Retrieve data from the segmentation map if the provided file is a fits file
+                    self.seg_map_hdr=seg_map_temp[0].header
+                    self.seg_map_data=seg_map_temp[0].data
                     #Extra copy holds the original data so another RA/DEC can be used later
-                    self.seg_map_data_orig=seg_map_temp.search("data", type_="NDArrayType").node
-                    self.seg_wcs=seg_map_temp.search("wcs", type_="WCS").node.to_fits_sip()
+                    self.seg_map_data_orig=seg_map_temp[0].data
+                    self.seg_wcs=WCS(self.seg_map_hdr)
                     seg_map_temp.close()
                 except:
-                    self.log.error("Segmentation map is invalid. Segmentation map must be an extant fits or asdf file with all relevant header keywords provided.")
+                    self.log.error("fits file provided as segmentation map is invalid. Please ensure the segmentation map file contains data and WCS coordinates")
+                    return
+            elif(ext=="asdf"):
+                try: 
+                    #Open segmentation map if it is an asdf file
+                    seg_map_temp=asdf.open(self.seg_map, lazy_load=False)
+                    #Retrieve data from the segmentation map if the provided file is an asdf file
+                    self.seg_map_data=seg_map_temp.search("data", type_="ndarray").node
+                    #Extra copy holds the original data so another RA/DEC can be used later
+                    self.seg_map_data_orig=seg_map_temp.search("data", type_="ndarray").node
+                    self.seg_wcs=seg_map_temp.search("wcs", type_="WCS").node
+                    seg_map_temp.close()
+                except:
+                    self.log.error("asdf file provided as segmentation map is invalid. Please ensure the segmentation map file contains data and WCS coordinates.")
+                    return
+            else:
+                self.log.error("Segmentation map is not a fits or asdf file. Please provide a segmentation map in one of these formats.")
                 return
             #Check SN image
-            try:
-                sn_im_temp=fits.open(self.sn_im)
-                #Retrieve data from the supernova image if the provided file is a fits file
-                self.sn_data=sn_im_temp[1].data
-                self.sn_wcs=WCS(sn_im_temp[1].header)
-                self.sn_size=(sn_im_temp[1].header["NAXIS1"], sn_im_temp[1].header["NAXIS2"])
-                self.sn_sca=sn_im_temp[1].header["SCA_NUM"]
-                sn_im_temp.close()
-            except:
+            ext=self.sn_im.split(".")[-1]
+            if(ext=="fits"):
                 try:
-                    sn_im_temp=asdf.open(self.sn_im, custom_schema=sn_schema)
-                    #Retrieve data from the supernova image if the provided file is an asdf file
-                    self.sn_data=sn_im_temp.search("data", type_="NDArrayType").node
-                    self.sn_wcs=WCS(sn_im_temp.search("wcs", type_="WCS").node.to_fits_sip())
-                    self.sn_size=(self.sn_wcs["NAXIS1"], self.sn_wcs["NAXIS2"])
-                    #This takes the detector chip and turns it into a number we'll need later
-                    self.sn_sca=int(file.search("detector", type_="str").node[-2:])
+                    #Open the SN image if it is a fits file
+                    sn_im_temp=fits.open(self.sn_im)
+                    #Retrieve data from the supernova image if the provided file is a fits file
+                    self.sn_data=sn_im_temp[1].data
+                    self.sn_wcs=WCS(sn_im_temp[1].header)
+                    self.sn_size=(sn_im_temp[1].header["NAXIS1"], sn_im_temp[1].header["NAXIS2"])
+                    self.sn_sca=sn_im_temp[1].header["SCA_NUM"]
                     sn_im_temp.close()
                 except:
-                    self.log.error("Supernova image is invalid")
-                return
-            #Retrieve data from the supernova image
-            
+                    self.log.error("fits file provided as supernova image is invalid. Please ensure the supernova image file contains data and WCS coordinates")
+                    return
+            elif(ext=="asdf"):
+                try:
+                    #Open the SN image if it is an asdf file
+                    sn_im_temp=asdf.open(self.sn_im, lazy_load=False)
+                    #Retrieve data from the supernova image if the provided file is an asdf file
+                    self.sn_data=sn_im_temp.search("data", type_="ndarray").node
+                    self.sn_wcs=sn_im_temp.search("wcs", type_="WCS").node
+                    self.sn_size=self.sn_data.shape
+                    #This takes the detector chip and turns it into a number we'll need later
+                    self.sn_sca=int(sn_im_temp.search("detector", type_="str").node[-2:])
+                    sn_im_temp.close()
+                except:
+                    self.log.error("asdf file provided as supernova image is invalid. Please ensure the supernova image file contains data and WCS coordinates")
+                    return
+            else:
+                self.log.error("Supernova image is not a fits or asdf file. Please provide a segmentation map in one of these formats.")
+                return            
+        #Pull image from the Roman database if running non-locally
         else:
             #Check direct image
             assert isinstance(direct_image, str), "direct_image must be the UUID of the direct image as a string"
@@ -348,14 +382,16 @@ class fitter:
         -------
         A dictionary of available redshift measurements, if any
         '''
+        print("This function is not currently operable")
         #TODO: Get this all set up
         #if (self.sn_id==None):
             #Find the SN corresponding with the given RA/DEC. If there is none, throw an error. 
-        dict_z={}
+        #dict_z={}
         #Step 1: Check the catalogue of the SN for redshift. If given, dict_z["catalog"]=z and dict_z["catalog_err"]=z_err
         #Step 2: Check for hostgal_properties redshift. If given, dict_z["hostgal"]=z and dict_z["hostgal_err"]=z_err
         #Step 3: Check for a photo-z from phrosty. If given, dict_z["photo_z"]=z and dict_z["photo_z_err"]=z_err
         #Step 4: Check hostgal_extdata.  If given, dict_z["hostgal_ext"]=z and dict_z["hostgal_ext_e"]=z_err
+        return
 
     def check_config(self, config_file):
         """This function checks a configuration file to ensure all parameters are valid and provides information on the failing parameter
@@ -449,7 +485,9 @@ class fitter:
                     #Check all four to see if there is any z
         assert working_dir != None, "A working directory must be provided"
         assert isinstance(working_dir, str), "working_dir must be a string"
-        assert os.path.isdir(working_dir), "working_dir is not an existing directory. Please create the directory and try again"
+        if not os.path.isdir(working_dir):
+            os.mkdir(working_dir)
+            print("Directory "+working_dir+" created. If this was not your intention, please ensure the correct directory is provided in the configuration file.")
         if(provenance_tag!=None):
             assert isinstance(provenance_tag, str), "provenance_tag must be a string"
             #TODO: later add something to ensure the provenance is valid
@@ -767,7 +805,6 @@ class fitter:
                     assert isinstance(config.value("params.bounds."+b)[1], float) or isinstance(config.value("params.bounds."+b)[1], int), "Upper bound on "+b+" must be a float or int"
                     assert config.value("params.bounds."+b)[0]<config.value("params.bounds."+b)[1], "Lower bound on "+b+" must be less than upper bound"
         return True
-
     
     def fit(self, theta, config_file, spec_data=None, phot_data=None):
         """This function fits a simulated spectrum to provided data.
@@ -804,7 +841,7 @@ class fitter:
             big_start=time.time()
             self.log.info("Beginning fit")
             self.log.info("Checking input parameters")
-        #Check that the configuration file is valid
+        #Check that the configuration file is valids
         self.check_config(config_file)
         #Extract high-level parameters to make my life easier
         z=config.value("temp.z")
@@ -848,9 +885,9 @@ class fitter:
             if isinstance(threads, float):
                 threads=int(threads)
             elif threads=="max":
-                threads==multiprocessing.cpu_count()
+                threads=multiprocessing.cpu_count()
         else:
-            threads==multiprocessing.cpu_count()
+            threads=multiprocessing.cpu_count()
         if(mjd_min_offset==None):
             mjd_min_offset=30
         if(mjd_max_offset==None):
@@ -1433,18 +1470,34 @@ class fitter:
         if(len(specs)>0): 
             if(local==True):
                 for i in range(0, len(specs)):
-                    try:
-                        temp=fits.open(specs[i])
-                        temp_hdr=temp[1].header
-                        spec_data_list.append(temp[1].data)
-                        spec_err_list.append(temp[2].data)
-                        spec_size_list.append([temp_hdr["NAXIS1"], temp_hdr["NAXIS2"]])
-                        spec_wcs_list.append(WCS(temp_hdr))
-                        spec_filt_list.append(temp_hdr["FILTER"])
-                        spec_sca_list.append(temp_hdr["SCA_NUM"])
-                        temp.close()
-                    except:
-                        self.log.warning("Fits file "+str(specs[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
+                    ext=specs[i].split(".")[-1]
+                    if(ext=="fits"):
+                        try:
+                            temp=fits.open(specs[i])
+                            temp_hdr=temp[1].header
+                            spec_data_list.append(temp[1].data)
+                            spec_err_list.append(temp[2].data)
+                            spec_size_list.append([temp_hdr["NAXIS1"], temp_hdr["NAXIS2"]])
+                            spec_wcs_list.append(WCS(temp_hdr))
+                            spec_filt_list.append(temp_hdr["FILTER"])
+                            spec_sca_list.append(temp_hdr["SCA_NUM"])
+                            temp.close()
+                        except:
+                            self.log.warning("Fits file "+str(specs[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
+                    elif(ext=="asdf"):
+                        try:
+                            temp=asdf.open(specs[i], lazy_load=False)
+                            spec_data_list.append(temp.search("data", type_="ndarray").node)
+                            spec_err_list.append(temp.search("err", type_="ndarray").node)
+                            spec_size_list.append(temp.search("data", type_="ndarray").node.shape)
+                            spec_wcs_list.append(temp.search("wcs", type_="WCS").node)
+                            spec_filt_list.append(temp.search("optical_element", type_="str").node)
+                            spec_sca_list.append(int(temp.search("detector", type_="str").node[-2:]))
+                            temp.close()
+                        except:
+                            self.log.warning("asdf file "+str(specs[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
+                    else:
+                        self.log.warning("File "+str(specs[i])+" is not in a valid image format (asdf or fits) and will not be included in the fit. If this is the only file in the fit, the fit will fail")
             else:
                 for i in range(0, len(specs)):
                     spec_data_list.append(specs[i].data)
@@ -1463,22 +1516,37 @@ class fitter:
             for i in range(0, len(phots)):
                 if(local==True):
                     for i in range(0, len(phots)):
-                        try:
-                            temp=fits.open(phots[i])
-                            temp_hdr=temp[1].header
-                            if (temp_hdr["FILTER"] not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
-                                self.log.warning("Filter "+str(filter)+" in file "+str(phots[i])+" is not valid. Valid filters are R062, Z087, Y106, J129, W146, H158, F184, and K213")
-                                self.log.warning("File "+phots[i]+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
-                            else:
-                                phot_data_list.append(temp[1].data)
-                                phot_err_list.append(temp[2].data)
-                                phot_filt_list.append(temp_hdr["FILTER"])
-                                phot_size_list.append([temp_hdr(["NAXIS1"]), temp_hdr["NAXIS2"]])
-                                phot_wcs_list.append(WCS(temp_hdr))
-                                phot_sca_list.append(temp_hdr["SCA_NUM"])
-                            temp.close()
-                        except:
-                            self.log.warning("Fits file "+str(phots[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
+                        ext=phots[i].split(".")[-1]
+                        if(ext=="fits"):
+                            try:
+                                temp=fits.open(phots[i])
+                                temp_hdr=temp[1].header
+                                if (temp_hdr["FILTER"] not in ["R062", "Z087", "Y106", "J129", "W146", "H158", "F184", "K213", "F062", "F087", "F106", "F129", "F146", "F158", "F213", "062", "087", "106", "129", "146", "158", "184", "213"]):
+                                    self.log.warning("Filter "+str(filter)+" in file "+str(phots[i])+" is not valid. Valid filters are R062, Z087, Y106, J129, W146, H158, F184, and K213")
+                                    self.log.warning("File "+phots[i]+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
+                                else:
+                                    phot_data_list.append(temp[1].data)
+                                    phot_err_list.append(temp[2].data)
+                                    phot_filt_list.append(temp_hdr["FILTER"])
+                                    phot_size_list.append([temp_hdr(["NAXIS1"]), temp_hdr["NAXIS2"]])
+                                    phot_wcs_list.append(WCS(temp_hdr))
+                                    phot_sca_list.append(temp_hdr["SCA_NUM"])
+                                temp.close()
+                            except:
+                                self.log.warning("Fits file "+str(phots[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
+                        elif(ext=="asdf"):
+                            try: 
+                                temp=asdf.open(phots[i], lazy_load=False)
+                                phot_data_list.append(temp.search("data", type_="ndarray").node)
+                                phot_err_list.append(temp.search("err", type_="ndarray").node)
+                                phot_filt_list.append(temp.search("optical_element", type_="str").node)
+                                phot_size_list.append(temp.search("data", type_="ndarray").node.shape)
+                                phot_wcs_list.append(temp.search("wcs", type_="WCS").node)
+                                phot_sca_list.append(int(temp.search("detector", type_="str").node[-2:]))
+                            except: 
+                                self.log.warning("asdf file "+str(phots[i])+" is invalid and will not be included in the fit. If this is the only file in the fit, the fit will fail")
+                        else:
+                            self.log.warning("File "+str(phots[i])+" is not in a valid format (asdf or fits) and will not be included in the fit. If this is the only file in the fit, the fit will fail")
                 else:
                     for i in range(0, len(phots)):
                         phot_data_list.append(phots[i].data)
@@ -1624,7 +1692,12 @@ class fitter:
             self.log.info("Time to overlap the pixels: "+str(datetime.timedelta(seconds=(time.time()-start))))
         #Define a log normal function for use later. Note that using the log normal here avoids underflow/overflow errors (mostly underflow)
         def log_normal(x, mu, sigma):
-            return np.log((1/np.sqrt(2*np.pi*sigma**2)))-((x-mu)**2)/(2*sigma**2)
+            #The Roman data model makes error a float32, which leads to overflow/underflow errors, so we just recast the numbers as float64 here
+            x=np.float64(x)
+            mu=np.float64(mu)
+            sigma=np.float64(sigma)
+            return -0.5*np.log(2*np.pi*sigma**2)+(-((x-mu)**2)/(2*sigma**2))
+            #return np.log((1/np.sqrt(2*np.pi*sigma**2)))-((x-mu)**2)/(2*sigma**2)
         #Define prior
         def log_prior(theta):
             #Lower bound on age. Must be slightly greater than zero to prevent errors in simulation. Can be set lower or higher if desired
@@ -1750,8 +1823,6 @@ class fitter:
                     self.log.error("File "+str(specs[k])+" does not produce a simulation that overlaps with the desired output. If your fit fails, this is one likely cause. Check your segmentation map and fits file headers to ensure the fit object and the data match")
                 for i in range(0, len(mask[0])):
                     sumlikely = sumlikely + log_normal(test[mask[0][i], mask[1][i]], data[mask[0][i], mask[1][i]], error[mask[0][i], mask[1][i]])
-                    if(np.isfinite(sumlikely)!=True):
-                        self.log.error("There is a likelihood value that is either infinite or NaN. If your fit fails, this is one likely cause. Check uncertainty files for unusually small values")
             #Sum likelihoods for the photometry
             for k in range(0, len(phot_data_list)):
                 data=phot_data_list[k]
@@ -1918,8 +1989,19 @@ class fitter:
             self.log.info("Calculating chi^2")
         chi=chi2()
         #Put together a map of the properties
-        hdu0=fits.PrimaryHDU()
-        hdul=fits.HDUList([hdu0])
+        #Create asdf file with Roman data model
+        adm=dm.ImageModel.create_fake_data(shape=(self.sn_size[0], self.sn_size[1]))
+        #Assign the correct properties using the SN image
+        adm["meta"]["wcs"]=self.sn_wcs
+        if self.sn_sca<10:
+            adm["meta"]["instrument"]["detector"]="WFI0"+str(self.sn_sca)
+        else:
+            adm["meta"]["instrument"]["detector"]="WFI"+str(self.sn_sca)
+        #Write in the high-level properties
+        adm["meta"]["redshift"]=z_best
+        adm["meta"]["chi2"]=chi
+        adm["meta"]["history"]="Image created using the script fit.py from the Roman SN PIT"
+        adm["meta"]["comment"]="Best fit properties for each pixel and chi^2 value of the fit"
         count=0
         for k in param_dict.keys():
             if(k!="z"): 
@@ -1931,14 +2013,7 @@ class fitter:
                         data[y, x]=best_fit[count]
                     else:
                         data[y, x]=best_fit[int((l*plength)+count)]
-                new_header=self.sn_wcs.to_header(relax=True)
-                new_header["PROPERTY"]=k
-                new_header["CHI2"]=chi
-                new_header["REDSHIFT"]=z_best
-                new_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
-                new_header["COMMENT"]="Best fit properties for each pixel and chi^2 value of the fit"
-                hdu=fits.ImageHDU(data)
-                hdul.append(hdu)
+                adm[str(k)]=data
                 count=count+1
         #Organize the requested outputs
         if(use_bayes==False):
@@ -1950,9 +2025,9 @@ class fitter:
             if(save_fit==True):
                 if(local==True):
                     if fit_name==None:
-                        hdul.writeto("best_fit_properties.fits", overwrite=True)
+                        adm.write_to("best_fit_properties.asdf", overwrite=True)
                     else:
-                        hdul.writeto(fit_name+".fits", overwrite=True)
+                        adm.write_to(fit_name+".asdf", overwrite=True)
                 else:
                     #TODO: Figure out how to save to the database
                     self.log.error("Saving the fit to the database not currently supported")
@@ -1961,13 +2036,15 @@ class fitter:
                 return_list.append(best_im)
             if(save_image==True):
                 if(local==True):
-                    im_header=self.sn_wcs.to_header()
-                    im_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
-                    hdu = fits.PrimaryHDU(best_im, im_header)
+                    bdm=dm.ImageModel.create_fake_data(shape=(self.sn_size[0], self.sn_size[1]))
+                    bdm["meta"]["wcs"]=self.sn_wcs
+                    bdm["meta"]["history"]="Image created using the script fit.py from the Roman SNPIT project"
+                    bdm["meta"]["comment"]="Best fit image"
+                    bdm["data"]=best_im
                     if image_name == None:
-                        hdu.writeto("best_fit.fits", overwrite=True)
+                        bdm.write_to("best_fit.asdf", overwrite=True)
                     else:
-                        hdu.writeto(image_name + ".fits", overwrite=True)
+                        bdm.write_to(image_name + ".asdf", overwrite=True)
                 else:
                     #TODO: Figure out how to save to the database
                     self.log.error("Saving the best fit image not currently supported")
@@ -1984,14 +2061,15 @@ class fitter:
                     return_list.append(sub)
                 if(save_subtracted==True):
                     if(local==True):
-                        self.sn_wcs.to_header()
-                        im_header["COMMENT"]="Image created using the script fit.py from the Roman SNPIT project"
-                        im_header["COMMENT"]="Host-galaxy subtracted image"
-                        hdu = fits.PrimaryHDU(sub, im_header)
+                        cdm=dm.ImageModel.create_fake_data(shape=(self.sn_size[0], self.sn_size[1]))
+                        cdm["meta"]["wcs"]=self.sn_wcs
+                        cdm["meta"]["history"]="Image created using the script fit.py from the Roman SNPIT project"
+                        cdm["meta"]["comment"]="Host-galaxy subtracted image"
+                        cdm["data"]=sub
                         if subtracted_name == None:
-                            hdu.writeto("best_fit_subtracted.fits", overwrite=True)
+                            cdm.write_to("best_fit_subtracted.asdf", overwrite=True)
                         else:
-                            hdu.writeto(subtracted_name + ".fits", overwrite=True)
+                            cdm.write_to(subtracted_name + ".asdf", overwrite=True)
                     else:
                         #TODO: Figure out how to save to the database
                         self.log.error("Saving the subtracted image not currently supported")
@@ -2005,13 +2083,13 @@ class fitter:
                         #    hdu.writeto(subtracted_name + ".fits", overwrite=True)
             if(cleanup==True):
                 #Remove the files that were made in the fitting process. 
-                os.system("rm -f "+working_dir+"*.txt")
-                os.system("rm -f "+working_dir+"*_temp.fits")
-                os.system("rm -f "+working_dir+"test*.[123456789]*")
-                os.system("rm -f "+working_dir+"fort*")
-                os.system("rm -f "+working_dir+"*.tmp")
-                os.system("rm -f "+working_dir+"test.*ed")
-                os.system("rm -f "+working_dir+"bc03.rm")
+                subprocess.call("rm -f "+working_dir+"*.txt", shell=True)
+                subprocess.call("rm -f "+working_dir+"*_temp.fits", shell=True)
+                subprocess.call("rm -f "+working_dir+"test*.[123456789]*", shell=True)
+                subprocess.call("rm -f "+working_dir+"fort*", shell=True)
+                subprocess.call("rm -f "+working_dir+"*.tmp", shell=True)
+                subprocess.call("rm -f "+working_dir+"test.*ed", shell=True)
+                subprocess.call("rm -f "+working_dir+"bc03.rm", shell=True)
             if(verbose==True):
                 self.log.info("Fit success!")
                 self.log.info("Total time to run: "+str(datetime.timedelta(seconds=(time.time()-big_start))))
