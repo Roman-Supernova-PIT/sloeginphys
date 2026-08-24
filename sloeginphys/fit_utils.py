@@ -1,5 +1,6 @@
 import numpy as np
 from astropy.wcs import WCS
+from astropy.io import fits
 from pypolyclip import clip_multi
 from roman_wfss.modeling.linear.WFSSImageSimulator import WFSSImageSimulator
 from roman_wfss.modeling.linear.WFSSImageSimulator_NERSC import WFSSImageSimulator_NERSC
@@ -155,7 +156,7 @@ def _make_SED_fsps(working_dir, one_sed, theta, param_dict, plength, sp, pixPos,
             # Make the spectrum
             spec = sp.get_spectrum(tage=tage, peraa=True)
             spec = np.transpose(spec)
-            np.savetxt(working_dir+str(pixPos[i][0])+"_"+str(pixPos[i][1])+".txt", spec)
+            np.savetxt(working_dir+str(pixPos[i][1])+"_"+str(pixPos[i][0])+".txt", spec)
         with ThreadPoolExecutor(max_workers=threads) as executor:
             for i in range(0, len(pixPos)):
                 params = theta[int(i * plength) : int((i + 1) * plength)]
