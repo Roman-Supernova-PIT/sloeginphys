@@ -5,12 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Usage &#8212; sloeginphys 0.1.dev1+g955eaf783 documentation</title>
+    <title>Usage &#8212; sloeginphys 0.1.dev1+g172537de0 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=5a6b8c39" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=f3bc516d" />
     <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
-    <script src="_static/documentation_options.js?v=c5277fd5"></script>
+    <script src="_static/documentation_options.js?v=c570d0b9"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -113,6 +113,7 @@
 <p>BC03:</p>
 <p>Bruzual and Charlot (2003)’s program, BC03, also known as GALAXEV, is available for download <a class="reference external" href="https://www.bruzual.org/bc03/">here</a> , with documentation <a class="reference external" href="https://www.bruzual.org/bc03/doc/bc03.pdf">here</a> . Installation instructions for cshell are in section 3.1 of the documenation. For bash, instead of “setenv bc03 /full path to GALAXEV src directory”, use “export bc03=’/full path to GALAXEV src directory’” and instead of “source ./.bc_cshrc” use “source ./.bc_bash”. Some additional notes on using BC03 with sloeginphys are given below.</p>
 <ul class="simple">
+<li><p>Due to the way BC03 is implemented in sloeginphys, if your computer is slow, it is possible for sequential commands to attempt to run before the previous command is complete. For this reason, there is an option for “delay_time” as well as “delay_count”. The program will check if the command is completed by checking the output file, wait for one “delay_time”, then test again. It will wait for up to “delay_count” times the given delay time, then if the program has not completed, it will throw an error. This will not be an issue for most computers–I had no issues on my previous personal laptop, a 2021 Mac–but should be kept in mind if you are having problems with BC03.</p></li>
 <li><p>For SFH 1 or -1, ensure gas recycling is set and that epsilon is included in the initial guess.</p></li>
 <li><p>For SFH 6, file names cannot be iterated over. In general this SED choice is not recommended.</p></li>
 <li><p>SFH 7 is not currently supported.</p></li>
@@ -271,6 +272,8 @@
 <p>sfh (int) – star formation history choice. Must be 0, 1, -1, 2, 3, 4, 5, or 6. SFH 7 is not currently supported. If SFH is 1 or -1, dust recycling is an option (see below). If SFH is 6, provide a list of SED files matching the number of pixels if one_sed is False, and one file if one_sed is True.</p>
 <p>file_names (list) – list of file names to pull SEDs from if SFH is 6.</p>
 <p>recyc (bool, optional) – choice to use gas recycling if SFH is 1 or -1. Default is False.</p>
+<p>delay_time (float, optional) - how long to wait between tests of BC03 commands. The total possible wait time is delay_time*delay_count. Default is 0.5 seconds.</p>
+<p>delay_count (int, optional) - how many tests to run on BC03 outputs before giving up. The total possible wait time is delay_time*delay_count. Default is 10.</p>
 <p>fsps_params – non-iterable parameters for performing the FSPS simulation. Any parameters that are not set here will be set to the default based on the FSPS documentation. Only brief summary of these parameters is provided here. For more details, see FSPS documentation <a class="reference external" href="https://dfm.io/python-fsps/current/stellarpop_api/#fsps.StellarPopulation.solar_metallicity">here</a>.</p>
 <p>zcontinuous (int) -choice for how metallicity interpolation is performed. Default is 0.</p>
 <p>zmet (int) – metallicity as an integer between 1 and nz. Only used if zcontinuous is 0. Default is 1.</p>
