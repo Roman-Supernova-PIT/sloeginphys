@@ -1,7 +1,9 @@
 import os
+import subprocess
 import numpy as np
 import glob
 import scipy.interpolate as spi
+import time
 from snappl.logger import SNLogger
 
 def make_csp_file(ised_dir, library, Z, imf, dust, sfh, ssp_name, file_name, sfh_params=None, dust_params=None, recyc=False):
@@ -138,21 +140,23 @@ def run_csp(work_dir, input_name, delete_in=False, verbose=False):
         None; runs csp_galaxev
     Notes:
         Requires $bc03 to be in your .bashrc or elsewhere defined. Should be done as part of setting up BC03'''
+    #Create log
+    log=SNLogger()
     #Get the current directory
     tempdir=os.getcwd()
     #Move into the directory where the files should be made
     os.chdir(work_dir)
     #Run csp_galaxev
     if(verbose==False):
-        os.system("$bc03/csp_galaxev < "+input_name+" &> bc03_logfile.txt")
+        out_code=subprocess.call("$bc03/csp_galaxev < "+input_name+" &> bc03_logfile.txt", shell=True)
     else:
-        os.system("$bc03/csp_galaxev < "+input_name)
+        out_code=subprocess.call("$bc03/csp_galaxev < "+input_name, shell=True)
     #Delete the input files if desired
     if delete_in==True:
-        os.system("rm -f "+input_name)
+        subprocess.call("rm -f "+input_name, shell=True)
     #Go back to the original directory
     os.chdir(tempdir)
-    return
+    return out_code
 
 def make_gpl_file(file_name, sed_name, age_range, out_name, wave_range=None):
     '''This function makes the input file for running galaxevp.
@@ -164,6 +168,8 @@ def make_gpl_file(file_name, sed_name, age_range, out_name, wave_range=None):
         wave_range (array, optional) - range of wavelengths to consider. Two element array of form [start, stop]
     Returns:
         None; creates text file that can be used to run galaxevpl'''
+    #Create log
+    log=SNLogger()
     input_string=""
     input_string+=sed_name+"\n"
     #Age MUST be an array, even if it's only one element long. Prevents program from proceeding otherwise.
@@ -206,15 +212,15 @@ def run_gpl(work_dir, input_name, delete_in=False, verbose=False):
     os.chdir(work_dir)
     #Run galaxevpl
     if(verbose==False):
-        os.system("$bc03/galaxevpl < "+input_name+" &> bc03_logfile.txt")
+        out_code=subprocess.call("$bc03/galaxevpl < "+input_name+" &> bc03_logfile.txt", shell=True)
     else:
-        os.system("$bc03/galaxevpl < "+input_name)
+        out_code=subprocess.call("$bc03/galaxevpl < "+input_name, shell=True)
     #Delete input files if desired
     if delete_in==True:
-        os.system("rm -f "+input_name)
+        subprocess.call("rm -f "+input_name, shell=True)
     #Move back to the original directory
     os.chdir(tempdir)
-    return
+    return out_code
 
 def csp_grid(ised_dir, work_dir, library, imf, sfh, dust=True, Z_range=True, Z=None, dust_params=None, sfh_params=None):
     '''The function generates a grid of SEDs using the csp function from BC03.
@@ -235,6 +241,8 @@ def csp_grid(ised_dir, work_dir, library, imf, sfh, dust=True, Z_range=True, Z=N
     Notes:
         See make_csp_file for more details on the dust and SFH parameters.
         All parameters are entered in as a three-element array of the form [start, stop, step]'''
+    #Create log
+    log=SNLogger()
     #Create grid of metallicities if Z_range is true
     if Z_range==True:
         if imf=="TopHeavy":
@@ -552,7 +560,7 @@ def csp_grid(ised_dir, work_dir, library, imf, sfh, dust=True, Z_range=True, Z=N
         return
     return
 
-def age_grid(age_range, work_dir, file_names=None, rename=True, full_name=None, verbose=False):
+def age_grid(age_range, work_dir, file_names=None, rename=True, full_name=None, verbose=False, delay_time=0.1):
     '''This function takes a directory of .ised files or a list of files from running csp and converts them into useful SEDs over a range of ages.
     Parameters:
         age_range (array) - the ages to consider. Must be an array
@@ -560,8 +568,11 @@ def age_grid(age_range, work_dir, file_names=None, rename=True, full_name=None, 
         file_name (string, optional) - the file to be passed into the function. Use if only specific files should be processed
         rename (bool, optional) - whether to add age to the name of the file. Defaults to true
         full_name (string, optional) - file name if the file should be completely renamed
+        delay_time (float, optional) - time to wait for files to be created before proceeding. Use a shorter time for a faster computer and a longer time for a slower one. Default is 0.1 second. 
     Returns:
         Creates galaxev_pl files that are machine-readable text files with SEDs. Makes the larger un-normalized ones as well as those normalized by mass'''
+    #Create log
+    log=SNLogger()
     #Gathers all the ised files in the working directory if needed
     if file_names!=None:
         files=file_names
@@ -573,12 +584,25 @@ def age_grid(age_range, work_dir, file_names=None, rename=True, full_name=None, 
         return
     #Iterates over the files
     for i in range(0, len(files)):
-        if file_names!=None:
-            name=file_names[i].split(".")[0]
-        else:
-            name=files[i].split("/")[-1][:-5]
-        make_gpl_file(work_dir+name+".txt", files[i], age_range, work_dir+name+".sed")
-        run_gpl(work_dir, work_dir+name+".txt", delete_in=True, verbose=verbose)
+        name=files[i].split("/")[-1].split(".")[0]
+        make_gpl_file(work_dir+name+"_gpl.txt", files[i], age_range, work_dir+name+".sed")
+        out_code=run_gpl(work_dir, work_dir+name+"_gpl.txt", delete_in=False, verbose=verbose)
+        if(out_code!=0):
+            log.error("galaxevpl has failed or is taking too long to run. Check logs for further details.")
+            return
+        #The BC03 command is run in the shell, not in python, so it is possible for the gpl step to run before the csp one is complete, which will stop the code. 
+        #   So, this loop checks if the file exists, waits some length of time, checks again, and so on, to ensure the files exist before moving on
+        #   If it takes longer than 10x the provided delay time (default is 0.1s), it will be considered a failure and throw an error
+        success=False
+        for i in range(0, 10):
+            if (os.path.isfile(work_dir+name+".sed")):
+                success=True
+                break
+            else:
+                time.sleep(delay_time)
+        if(success==False):
+            log.error("galaxevpl has failed or is taking too long to run. Check logs for further details.")
+            return
         #Gets the mass file for mass normalization
         massfile=np.loadtxt(work_dir+name+".4color")
         #Eliminates the occasional duplicate rows BC03 produces. There is probably a better way to do this but I don't know it
@@ -610,7 +634,7 @@ def age_grid(age_range, work_dir, file_names=None, rename=True, full_name=None, 
                 np.savetxt(work_dir+name+"_norm.sed", np.transpose([lamb, flam]))
     return
 
-def make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=None, recyc=False, delete_in=False, full_name=None, verbose=False):
+def make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params, age_params, dust_params=None, recyc=False, delete_in=False, full_name=None, verbose=False, delay_time=0.1):
     '''This function makes a single spectrum buy combining functions make_csp_file, run_csp, and age_grid into one function
     Parameters:
         working_dir (string) - the working directory where the spectrum file should be made
@@ -623,10 +647,27 @@ def make_spec(working_dir, ised_dir, csp_params, spec_name, csp_name, sfh_params
         dust_params (array, optional) - the parameters for dust. See make_csp_file for more details
         recyc (array, optional) - choice to use gas recycling. Only required if SFH is 1 or -1
         delete_in (bool, optional) - choice to delete the csp input file. Default choice is to keep the file
+        full_name (string, optional) - name of final file to be created. Default is to just overwrite the .sed file. 
+        verbose (bool, optional) - choice to run with commentary or without. Default is without. 
+        delay_time (float, optional) - time to wait for files to be created before proceeding. Use a shorter time for a faster computer and a longer time for a slower one. Default is 0.1 second. 
     Returns:
         Creates a normalized spectrum at a specific age for the given parameters.'''
+    log=SNLogger()
     lib, metal, imf, dust, sfh=csp_params
     make_csp_file(ised_dir, lib, metal, imf, dust, sfh, spec_name, csp_name, sfh_params=sfh_params, dust_params=dust_params, recyc=recyc)
-    run_csp(working_dir, csp_name, delete_in=delete_in, verbose=verbose)
-    age_grid(age_params, working_dir, file_names=[spec_name], rename=False, full_name=full_name, verbose=verbose)
+    out_code=run_csp(working_dir, csp_name, delete_in=delete_in, verbose=verbose)
+    if(out_code!=0):
+        log.error("csp_galaxev has failed or is taking too long to run. Check logs for further details.")
+        return
+    #The BC03 command is run in the shell, not in python, so it is possible for the gpl step to run before the csp one is complete, which will stop the code. 
+    #   So, this loop checks if the file exists, waits some length of time, checks again, and so on, to ensure the files exist before moving on
+    #   If it takes longer than 10x the provided delay time (default is 0.1s), it will be considered a failure and throw an error
+    success=False
+    for i in range(0, 10):
+        if (os.path.isfile(working_dir+spec_name+".ised")):
+            success=True
+            break
+        else:
+            time.sleep(delay_time)
+    age_grid(age_params, working_dir, file_names=[working_dir+spec_name], rename=False, full_name=full_name, verbose=verbose, delay_time=delay_time)
     return
