@@ -28,6 +28,7 @@ BC03:
 
 Bruzual and Charlot (2003)'s program, BC03, also known as GALAXEV, is available for download `here <https://www.bruzual.org/bc03/>`_ , with documentation `here <https://www.bruzual.org/bc03/doc/bc03.pdf>`_ . Installation instructions for cshell are in section 3.1 of the documenation. For bash, instead of "setenv bc03 /full path to GALAXEV src directory", use "export bc03='/full path to GALAXEV src directory'" and instead of "source ./.bc_cshrc" use "source ./.bc_bash". Some additional notes on using BC03 with sloeginphys are given below. 
 
+* Due to the way BC03 is implemented in sloeginphys, if your computer is slow, it is possible for sequential commands to attempt to run before the previous command is complete. For this reason, there is an option for "delay_time" as well as "delay_count". The program will check if the command is completed by checking the output file, wait for one "delay_time", then test again. It will wait for up to "delay_count" times the given delay time, then if the program has not completed, it will throw an error. This will not be an issue for most computers--I had no issues on my previous personal laptop, a 2021 Mac--but should be kept in mind if you are having problems with BC03. 
 * For SFH 1 or -1, ensure gas recycling is set and that epsilon is included in the initial guess. 
 * For SFH 6, file names cannot be iterated over. In general this SED choice is not recommended. 
 * SFH 7 is not currently supported. 
@@ -257,6 +258,10 @@ sfh (int) – star formation history choice. Must be 0, 1, -1, 2, 3, 4, 5, or 6.
 file_names (list) – list of file names to pull SEDs from if SFH is 6. 
 
 recyc (bool, optional) – choice to use gas recycling if SFH is 1 or -1. Default is False.
+
+delay_time (float, optional) - how long to wait between tests of BC03 commands. The total possible wait time is delay_time*delay_count. Default is 0.5 seconds.
+
+delay_count (int, optional) - how many tests to run on BC03 outputs before giving up. The total possible wait time is delay_time*delay_count. Default is 10. 
 
 fsps_params – non-iterable parameters for performing the FSPS simulation. Any parameters that are not set here will be set to the default based on the FSPS documentation. Only brief summary of these parameters is provided here. For more details, see FSPS documentation `here <https://dfm.io/python-fsps/current/stellarpop_api/#fsps.StellarPopulation.solar_metallicity>`_. 
 
