@@ -150,9 +150,9 @@ fixed_z (bool) - choice to use a known, fixed redshift or to use a PDF and fit f
 
 cleanup (bool) - choice to preserve or remove the various files created in the fitting process. if True, deleted all .txt files and all .fits files ending with "_temp" in the working directory. Warning: this function uses os.system to run the "rm" command, meaning that the deleted files are gone forever, so make sure there's nothing in your working directory you want to keep that might get caught in the crossfire. 
 
-delay_time (float, optional) - how long to wait between tests of BC03 commands. The total possible wait time is delay_time*delay_count. Default is 0.05 seconds. Only used with if sim_code is BC03. 
+delay_time (float, optional) - how long to wait between tests of BC03 commands. The total possible wait time is delay_time*delay_count. Default is 0.01 seconds. Only used with if sim_code is BC03. 
 
-delay_count (int, optional) - how many tests to run on BC03 outputs before giving up. The total possible wait time is delay_time*delay_count. Default is 100. Only used with if sim_code is BC03. 
+delay_count (int, optional) - how many tests to run on BC03 outputs before giving up. The total possible wait time is delay_time*delay_count. Default is 500. Only used with if sim_code is BC03. 
 
 paths
 -----
